@@ -1,5 +1,7 @@
 # cpp-xcframework-sdk
 
+[![skills.sh](https://skills.sh/b/logdok/cpp-xcframework-sdk)](https://skills.sh/logdok/cpp-xcframework-sdk)
+
 A [Claude Code](https://claude.com/claude-code) skill that scaffolds a cross-platform
 C++ SDK with a stable **C-ABI boundary**, wrapped as an Apple **XCFramework**
 and consumable from Swift — built so the same compiled core can later serve
