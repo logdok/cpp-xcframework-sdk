@@ -5,12 +5,26 @@ C++ SDK with a stable **C-ABI boundary**, wrapped as an Apple **XCFramework**
 and consumable from Swift — built so the same compiled core can later serve
 an Android `.aar` or Windows `.dll` client without touching the core.
 
-It generates a compile-verified skeleton using the patterns real device/hardware
-SDKs need: a pure-C public header, Pimpl-hidden implementation classes, a pure
-abstract backend interface with a single-creation-point factory, async
-`std::function` callbacks below the boundary, a CMake build that produces a real
-`.framework` bundle with an injected Clang module map, and a `build_xcframework.sh`
-that assembles macOS + iOS device + iOS simulator slices into one `.xcframework`.
+It generates a compile-verified skeleton using the patterns real SDKs need: a
+pure-C public header, Pimpl-hidden implementation classes, a pure abstract
+backend interface with a single-creation-point factory, a CMake build that
+produces a real `.framework` bundle with an injected Clang module map, and a
+`build_xcframework.sh` that assembles macOS + iOS device + iOS simulator
+slices into one `.xcframework`.
+
+Two `--kind` profiles are available:
+
+- **`device`** (default) — discovers/connects to something external and
+  asynchronous (a BLE sensor, a camera, a printer, a medical probe, a network
+  endpoint): `Manager` → `Session` → `I<Channel>`/`Simulator<Channel>`, with
+  `std::function` callbacks streamed from a background thread and a simulator
+  backend that fabricates realistic hardware failures (disconnects, jitter,
+  battery drain) for UI development before real hardware exists.
+- **`library`** — a self-contained synchronous compute object, no device or
+  connection at all (a codec, an image/signal-processing pipeline, a parser,
+  on-device ML inference): a single Pimpl `<Entity>` with a `Create → Process
+  → Destroy` C API, an explicit-ownership output buffer, and an optional
+  progress callback.
 
 ## Install
 
@@ -25,6 +39,8 @@ git clone https://github.com/logdok/cpp-xcframework-sdk ~/.claude/skills/cpp-xcf
 ```
 
 ## What it generates
+
+`--kind device`:
 
 ```
 <repo>/
@@ -43,6 +59,27 @@ git clone https://github.com/logdok/cpp-xcframework-sdk ~/.claude/skills/cpp-xcf
     CMakeLists.txt
   build_xcframework.sh           builds 3 slices, wraps into <SDK>.xcframework
   CLAUDE.md                      build commands + architecture notes for this repo
+  .gitignore
+```
+
+`--kind library` — same outer shape, flatter core (no discovery/session/transport):
+
+```
+<repo>/
+  <SDK>/
+    include/<SDK>.h              Create/Process/Destroy, owned-buffer result, progress callback
+    src/domain/types.h           Options, ResultCode, ProgressCallback
+    src/backend/I<Channel>.h             pure abstract compute-backend interface
+    src/backend/Reference<Channel>.*     correctness-first default implementation
+    src/backend/<Channel>Factory.*       single creation point for backends
+    src/core/<Entity>.*                  Pimpl compute object, owns the backend
+    src/capi/<entity>_c_api.cpp          C-ABI facade (buffer ownership transfer)
+    src/version.cpp
+    framework/module.modulemap
+    tools/smoke_test.cpp
+    CMakeLists.txt
+  build_xcframework.sh
+  CLAUDE.md
   .gitignore
 ```
 
@@ -77,9 +114,16 @@ to generate and verify the project.
 You can also invoke the scaffolder directly:
 
 ```bash
+# device kind (default)
 python3 scripts/scaffold.py \
   --sdk-name SensorSDK --entity-name Sensor --channel-name Link \
   --api-prefix SNS --namespace sns \
+  --output /path/to/repo
+
+# library kind
+python3 scripts/scaffold.py --kind library \
+  --sdk-name ImageCodecSDK --entity-name Encoder \
+  --api-prefix ICS --namespace ics \
   --output /path/to/repo
 ```
 

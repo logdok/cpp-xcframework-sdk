@@ -1,0 +1,33 @@
+//
+// backend/{{CHANNEL_NAME}}Factory.h
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//
+// Copyright (c) {{YEAR}} {{AUTHOR}}
+//
+// Distributed under the MIT License. (See accompanying file LICENSE.txt)
+//
+
+#pragma once
+
+// Single creation point for I{{CHANNEL_NAME}} implementations. Callers never
+// call `new Reference{{CHANNEL_NAME}}()` directly -- this is the only place
+// that knows the concrete type, so adding a faster/alternate implementation
+// later means adding one case here and nowhere else.
+
+#include <memory>
+
+namespace {{NAMESPACE}} {
+
+class I{{CHANNEL_NAME}};
+
+enum class {{CHANNEL_NAME}}Mode {
+    Reference = 0,
+    // Optimized,   // add a SIMD/GPU/third-party-backed mode here when you have one
+};
+
+class {{CHANNEL_NAME}}Factory {
+public:
+    static std::unique_ptr<I{{CHANNEL_NAME}}> Create({{CHANNEL_NAME}}Mode mode);
+};
+
+} // namespace {{NAMESPACE}}

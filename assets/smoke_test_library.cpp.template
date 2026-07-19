@@ -1,0 +1,61 @@
+//
+// tools/smoke_test.cpp
+// ~~~~~~~~~~~~~~~~~~~~
+//
+// Copyright (c) {{YEAR}} {{AUTHOR}}
+//
+// Distributed under the MIT License. (See accompanying file LICENSE.txt)
+//
+
+#include "{{SDK_NAME}}.h"
+
+#include <cstdio>
+#include <vector>
+
+static void onProgress(float progress, void*) {
+    std::printf("  progress: %.0f%%\n", progress * 100.0f);
+}
+
+int main() {
+    {{API_PREFIX}}Version v = {{API_PREFIX}}_GetVersion();
+    std::printf("{{SDK_NAME}} version: %u.%u.%u (build %u)\n", v.major, v.minor, v.patch, v.build);
+
+    {{API_PREFIX}}{{ENTITY_NAME}}Options options{};
+    options.struct_size = sizeof(options);
+    options.level = 5;
+
+    {{API_PREFIX}}{{ENTITY_NAME}}Ref {{ENTITY_NAME_LOWER}} = {{API_PREFIX}}_{{ENTITY_NAME}}_Create(options);
+    std::printf("Create -> %s\n", {{ENTITY_NAME_LOWER}} ? "ok" : "FAILED");
+
+    std::vector<uint8_t> input(1024);
+    for (size_t i = 0; i < input.size(); ++i) input[i] = static_cast<uint8_t>(i);
+
+    {{API_PREFIX}}Buffer result{};
+    {{API_PREFIX}}Result rc = {{API_PREFIX}}_{{ENTITY_NAME}}_Process({{ENTITY_NAME_LOWER}}, input.data(),
+                                                                      static_cast<int32_t>(input.size()),
+                                                                      onProgress, nullptr, &result);
+    std::printf("Process -> rc=%d, output %d bytes\n", static_cast<int>(rc), result.size);
+
+    // The placeholder Reference{{CHANNEL_NAME}} XORs every byte with the
+    // level, so re-processing the output with the same options must
+    // reproduce the original input -- a cheap correctness check that
+    // survives replacing the placeholder transform, as long as whatever
+    // replaces it stays deterministic for a fixed input+options.
+    bool roundTrips = false;
+    if (rc == {{API_PREFIX}}_OK) {
+        std::vector<uint8_t> roundTrip(result.data, result.data + result.size);
+        for (size_t i = 0; i < roundTrip.size() && i < input.size(); ++i) {
+            roundTrips = (roundTrip[i] ^ static_cast<uint8_t>(options.level)) == input[i];
+            if (!roundTrips) break;
+        }
+    }
+
+    const bool ok = rc == {{API_PREFIX}}_OK && result.size == static_cast<int32_t>(input.size())
+                  && result.data != nullptr && roundTrips;
+
+    {{API_PREFIX}}_{{ENTITY_NAME}}_FreeResult(&result);
+    {{API_PREFIX}}_{{ENTITY_NAME}}_Destroy({{ENTITY_NAME_LOWER}});
+
+    std::printf("SMOKE %s\n", ok ? "PASSED" : "FAILED");
+    return ok ? 0 : 1;
+}

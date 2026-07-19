@@ -1,0 +1,41 @@
+//
+// core/{{ENTITY_NAME}}.h
+// ~~~~~~~~~~~~~~~~~~~~~~
+//
+// Copyright (c) {{YEAR}} {{AUTHOR}}
+//
+// Distributed under the MIT License. (See accompanying file LICENSE.txt)
+//
+
+#pragma once
+
+// The SDK's one compute object. Owns an I{{CHANNEL_NAME}} backend and
+// exposes a single synchronous process() call. Implementation hidden
+// behind Pimpl so the header stays stable while the backend selection
+// logic changes underneath.
+
+#include <memory>
+#include <vector>
+
+#include "domain/types.h"
+
+namespace {{NAMESPACE}} {
+
+class {{ENTITY_NAME}} {
+public:
+    explicit {{ENTITY_NAME}}({{ENTITY_NAME}}Options options);
+    ~{{ENTITY_NAME}}();
+
+    {{ENTITY_NAME}}(const {{ENTITY_NAME}}&)            = delete;
+    {{ENTITY_NAME}}& operator=(const {{ENTITY_NAME}}&) = delete;
+
+    ResultCode process(const std::vector<uint8_t>& input,
+                        const ProgressCallback& onProgress,
+                        std::vector<uint8_t>& output);
+
+private:
+    class Impl;
+    std::unique_ptr<Impl> impl_;
+};
+
+} // namespace {{NAMESPACE}}

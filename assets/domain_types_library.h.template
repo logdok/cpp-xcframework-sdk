@@ -1,0 +1,38 @@
+//
+// domain/types.h
+// ~~~~~~~~~~~~~~
+//
+// Copyright (c) {{YEAR}} {{AUTHOR}}
+//
+// Distributed under the MIT License. (See accompanying file LICENSE.txt)
+//
+
+#pragma once
+
+// Internal C++ domain types. These live entirely below the C-ABI boundary
+// and are free to use STL -- they never appear in a public header. The C
+// facade (capi/*.cpp) converts them to/from the POD structs in the public
+// header.
+
+#include <cstdint>
+#include <functional>
+#include <vector>
+
+namespace {{NAMESPACE}} {
+
+// Tuning options for a {{ENTITY_NAME}}. Mirrors {{API_PREFIX}}{{ENTITY_NAME}}Options.
+struct {{ENTITY_NAME}}Options {
+    int level = 5; // placeholder tunable, 0..10
+};
+
+// Outcome of a process() call. Mirrors {{API_PREFIX}}Result.
+enum class ResultCode {
+    Ok             = 0,
+    InvalidInput   = 1,
+    BackendFailure = 2,
+};
+
+// 0..1 progress notification, invoked synchronously on the calling thread.
+using ProgressCallback = std::function<void(float progress)>;
+
+} // namespace {{NAMESPACE}}

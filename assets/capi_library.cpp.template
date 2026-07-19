@@ -1,0 +1,87 @@
+//
+// capi/{{ENTITY_NAME_LOWER}}_c_api.cpp
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//
+// Copyright (c) {{YEAR}} {{AUTHOR}}
+//
+// Distributed under the MIT License. (See accompanying file LICENSE.txt)
+//
+
+#include "{{SDK_NAME}}.h"
+
+#include <cstring>
+#include <new>
+#include <vector>
+
+#include "core/{{ENTITY_NAME}}.h"
+#include "domain/types.h"
+
+// C-ABI facade. The opaque {{API_PREFIX}}{{ENTITY_NAME}}Ref handle is just a
+// reinterpret_cast view onto the C++ object; no C++ type ever crosses the
+// boundary.
+
+namespace {
+
+{{NAMESPACE}}::{{ENTITY_NAME}}* as{{ENTITY_NAME}}({{API_PREFIX}}{{ENTITY_NAME}}Ref ref) {
+    return reinterpret_cast<{{NAMESPACE}}::{{ENTITY_NAME}}*>(ref);
+}
+
+} // namespace
+
+extern "C" {
+
+{{API_PREFIX}}_API {{API_PREFIX}}{{ENTITY_NAME}}Ref {{API_PREFIX}}_{{ENTITY_NAME}}_Create({{API_PREFIX}}{{ENTITY_NAME}}Options options) {
+    {{NAMESPACE}}::{{ENTITY_NAME}}Options opts;
+    opts.level = options.level;
+    return reinterpret_cast<{{API_PREFIX}}{{ENTITY_NAME}}Ref>(new {{NAMESPACE}}::{{ENTITY_NAME}}(opts));
+}
+
+{{API_PREFIX}}_API void {{API_PREFIX}}_{{ENTITY_NAME}}_Destroy({{API_PREFIX}}{{ENTITY_NAME}}Ref {{ENTITY_NAME_LOWER}}) {
+    delete as{{ENTITY_NAME}}({{ENTITY_NAME_LOWER}}); // nullptr-safe
+}
+
+{{API_PREFIX}}_API {{API_PREFIX}}Result {{API_PREFIX}}_{{ENTITY_NAME}}_Process({{API_PREFIX}}{{ENTITY_NAME}}Ref      {{ENTITY_NAME_LOWER}},
+                                                                                const uint8_t*                    input,
+                                                                                int32_t                           input_size,
+                                                                                {{API_PREFIX}}ProgressCallback     progress,
+                                                                                void*                              user_data,
+                                                                                {{API_PREFIX}}Buffer*              out_result) {
+    if (out_result) std::memset(out_result, 0, sizeof(*out_result));
+    if (!{{ENTITY_NAME_LOWER}} || !input || input_size <= 0 || !out_result) {
+        return {{API_PREFIX}}_INVALID_INPUT;
+    }
+
+    const std::vector<uint8_t> in(input, input + input_size);
+    std::vector<uint8_t> out;
+
+    {{NAMESPACE}}::ProgressCallback onProgress;
+    if (progress) {
+        onProgress = [progress, user_data](float p) { progress(p, user_data); };
+    }
+
+    const {{NAMESPACE}}::ResultCode rc = as{{ENTITY_NAME}}({{ENTITY_NAME_LOWER}})->process(in, onProgress, out);
+    if (rc != {{NAMESPACE}}::ResultCode::Ok) {
+        return static_cast<{{API_PREFIX}}Result>(rc);
+    }
+
+    // Ownership transfer: this buffer belongs to the caller now, freed via
+    // {{API_PREFIX}}_{{ENTITY_NAME}}_FreeResult(). Plain new[] pairs with the plain
+    // delete[] in FreeResult below -- both live in this SDK's binary, so the
+    // allocator match is guaranteed even across a DLL/framework boundary.
+    auto* data = new (std::nothrow) uint8_t[out.size()];
+    if (!data) return {{API_PREFIX}}_BACKEND_FAILURE;
+    std::memcpy(data, out.data(), out.size());
+
+    out_result->data = data;
+    out_result->size = static_cast<int32_t>(out.size());
+    return {{API_PREFIX}}_OK;
+}
+
+{{API_PREFIX}}_API void {{API_PREFIX}}_{{ENTITY_NAME}}_FreeResult({{API_PREFIX}}Buffer* result) {
+    if (!result) return;
+    delete[] result->data;
+    result->data = nullptr;
+    result->size = 0;
+}
+
+} // extern "C"

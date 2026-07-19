@@ -12,6 +12,12 @@
       "prompt": "I'm prototyping a control library for a network-attached PTZ camera in C++. Our SwiftUI app needs to link it as an xcframework on macOS and iOS, and the UI team wants to start building screens before we get real camera hardware in the office. Also heard we might need a Windows build down the line for a partner's desktop app. Can you set up the project structure for this in /tmp/ptz-camera-sdk-test? I want good separation between the public API and the internals.",
       "expected_output": "A generated repo with a pure C-ABI public header, CMakeLists.txt building a .framework on Apple platforms with a Windows-portable export macro (dllexport/dllimport), build_xcframework.sh for the three Apple slices, module.modulemap injection, and internal C++ using Pimpl + interface + factory + a simulator backend that fabricates realistic failures (not just happy-path frames) so the UI team can build against it before hardware arrives. The generated project should cmake-configure and build successfully.",
       "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "We have a C++ JPEG-ish image compression routine we want to expose to our SwiftUI app as an xcframework, both iOS and macOS. There's no external device involved at all, it's just: give it raw pixel bytes, get back compressed bytes. Can you set this up as a proper SDK in /tmp/image-codec-sdk-test with a clean public API, separate from the internals?",
+      "expected_output": "A generated repo using the library kind (no discovery/session/transport layer): a pure C-ABI public header exposing Create/Process/Destroy plus an owned-buffer result type with an explicit free function, internal C++ using Pimpl for the main compute object plus an abstract backend interface + factory (not a device/streaming shape), CMakeLists.txt/build_xcframework.sh/module.modulemap identical in spirit to the device kind. The generated project should cmake-configure and build successfully, and the smoke test should pass.",
+      "files": []
     }
   ]
 }

@@ -1,0 +1,40 @@
+//
+// backend/I{{CHANNEL_NAME}}.h
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//
+// Copyright (c) {{YEAR}} {{AUTHOR}}
+//
+// Distributed under the MIT License. (See accompanying file LICENSE.txt)
+//
+
+#pragma once
+
+// Pure abstract compute boundary. {{ENTITY_NAME}} talks only to this
+// interface and never knows which concrete implementation is doing the
+// work. Reference{{CHANNEL_NAME}} is a correct-but-simple implementation;
+// add a second one (SIMD-optimized, GPU-accelerated, a third-party codec
+// wrapped behind it, ...) without touching {{ENTITY_NAME}} or the C-ABI
+// facade -- just add a case to {{CHANNEL_NAME}}Factory.
+
+#include <vector>
+
+#include "domain/types.h"
+
+namespace {{NAMESPACE}} {
+
+class I{{CHANNEL_NAME}} {
+public:
+    virtual ~I{{CHANNEL_NAME}}() = default;
+
+    // Transforms `input` into `output`. `onProgress` may be empty; call it
+    // (if set) with monotonically increasing values in [0, 1] as work
+    // completes -- this runs synchronously on the caller's thread, so do
+    // not call it excessively (a few dozen times for the whole call is
+    // plenty; do not call it per-byte).
+    virtual ResultCode process(const std::vector<uint8_t>& input,
+                                const {{ENTITY_NAME}}Options& options,
+                                const ProgressCallback& onProgress,
+                                std::vector<uint8_t>& output) = 0;
+};
+
+} // namespace {{NAMESPACE}}

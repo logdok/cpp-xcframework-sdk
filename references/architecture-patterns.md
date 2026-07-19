@@ -6,6 +6,29 @@ skeleton exactly — the goal is the underlying property (a stable C-ABI
 boundary with comfortable C++ underneath it), not literal conformance to
 the file layout.
 
+## Two shapes: `device` vs `library`
+
+Not every SDK talks to hardware. `scripts/scaffold.py --kind device` gives
+you `Manager → Session → I{Channel}` for anything with a connection
+lifecycle and asynchronous, background-thread-driven events. `--kind
+library` gives you a single Pimpl compute object (`{Entity}`) with a
+synchronous `Create → Process → Destroy` C API for anything that's
+input-in, output-out, with no external device involved — a codec, an
+image/signal-processing pipeline, a parser, on-device inference.
+
+Both share the same universal core (pure-C boundary, Pimpl, an abstract
+interface + factory for the swappable implementation, a CMake build that
+produces a real `.framework` with an injected module map). What differs is
+what sits behind the interface and how the C API is shaped: `device`'s
+`I{Channel}` models a communication channel (open/close/start-streaming)
+with borrowed, callback-scoped pointers; `library`'s `I{Channel}` models a
+computation (`process(input) -> output`) with an owned, explicitly-freed
+output buffer. Don't force a `device`-shaped Manager/Session onto a
+compute-only SDK just because it's the more familiar template — it adds a
+discovery/connection lifecycle that has no referent in the domain, and the
+user (or a future maintainer) will have to reason about state transitions
+that can never actually occur.
+
 ## The one hard constraint: pure C at the boundary
 
 C++ does not have a stable Application Binary Interface. Name mangling,
@@ -128,7 +151,38 @@ This lambda has no captures that need destructors run in a specific order
 and no `this` capture — it's copyable, POD-safe to store inside a
 `std::function`, and correctly outlives the `capi.cpp` call that created it.
 
+## Ownership across the boundary: borrowed vs owned pointers
+
+The `device` and `library` C APIs hand out pointers under two different,
+incompatible contracts — mixing them up is a use-after-free or a leak, so
+be explicit in the header comment for every pointer-bearing struct/callback
+about which one applies:
+
+- **Borrowed, callback-scoped** (`device` kind: `{API}Sample`, frame/telemetry
+  callbacks). The pointer is valid only for the duration of the callback
+  that hands it to you. Copy out what you need before returning; never
+  store the pointer itself. The SDK owns the memory and reuses or frees it
+  the moment the callback returns.
+- **Owned, explicitly transferred** (`library` kind: `{API}Buffer` from
+  `Process()`). The SDK allocates the buffer with `new[]` inside its own
+  binary and hands ownership to the caller. The caller must eventually pass
+  it to the matching `FreeResult()` — allocating with `new[]` in the SDK's
+  binary and freeing with the SDK's own `delete[]` (rather than, say, the
+  caller's `free()`) keeps the allocator matched even across a
+  DLL/framework boundary, which is not guaranteed in general when a Swift
+  or Kotlin runtime and a C++ shared library each bring their own
+  allocator.
+
+Never let a function return a raw pointer without the header comment saying
+which contract it follows — "who frees this, and when" is exactly the kind
+of thing that's obvious to the person who wrote the facade and invisible to
+everyone else.
+
 ## The simulator is not a toy stub
+
+(`device` kind only — a `library` SDK has no external hardware to simulate;
+its `Reference{Channel}` just needs to be correct, see the factory section
+above.)
 
 `Simulator{Channel}` exists so UI and application code can be built,
 demoed, and tested *before hardware exists*, and so integration tests don't

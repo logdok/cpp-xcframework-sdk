@@ -1,6 +1,6 @@
 ---
 name: cpp-xcframework-sdk
-description: Scaffolds a cross-platform C++ SDK with a stable C-ABI boundary, wrapped as an Apple XCFramework and consumable from Swift (and, by construction, future Android/.aar or Windows/.dll clients without touching the core). Use this whenever the user wants to start a new native SDK meant to be shared across platforms, mentions building a ".xcframework", wrapping C++ for Swift/iOS/macOS consumption, exposing a C-ABI/C API from C++, or describes an architecture with Pimpl, pure abstract interfaces, a factory for backends, and async callbacks for hardware/device SDKs (BLE, sensors, cameras, printers, medical devices, IoT, etc.) — even if they don't use these exact words, e.g. "I need a C++ library my Swift app can call that also has to work on Android later" or "how do I structure a device SDK with a simulator backend for UI development before the hardware arrives". Also use it to review or bring an existing native SDK into this shape (adding the missing Public/Internal/Private layering, the C-ABI facade, the module map, or the xcframework build script).
+description: Scaffolds a cross-platform C++ SDK with a stable C-ABI boundary, wrapped as an Apple XCFramework and consumable from Swift (and, by construction, future Android/.aar or Windows/.dll clients without touching the core). Covers two shapes — a "device" SDK that discovers/connects to external hardware over a swappable transport with async streaming (BLE sensors, cameras, printers, medical devices, IoT), and a "library" SDK that is a self-contained synchronous compute object with no device/connection at all (codecs, image/signal processing, parsers, on-device ML inference, crypto). Use this whenever the user wants to start a new native SDK meant to be shared across platforms, mentions building a ".xcframework", wrapping C++ for Swift/iOS/macOS consumption, exposing a C-ABI/C API from C++, or describes an architecture with Pimpl, pure abstract interfaces, a factory for backends — even if they don't use these exact words, e.g. "I need a C++ library my Swift app can call that also has to work on Android later", "how do I structure a device SDK with a simulator backend for UI development before the hardware arrives", or "wrap this C++ image processing code as an xcframework for our SwiftUI app". Also use it to review or bring an existing native SDK into this shape (adding the missing Public/Internal/Private layering, the C-ABI facade, the module map, or the xcframework build script).
 ---
 
 # Cross-platform C++ SDK with a C-ABI boundary and XCFramework pipeline
@@ -30,17 +30,47 @@ iOS cross-compiles need specific SDK/arch flags, etc.).
 
 ## Workflow
 
+### 0. Pick a profile: `device` or `library`
+
+The scaffolder has two `--kind` profiles, and picking the wrong one forces
+the user to delete half the generated files. Decide from the domain
+description, and only ask if it's genuinely ambiguous:
+
+- **`device`** (default) — the SDK discovers, connects to, and streams from
+  something external and asynchronous: a physical device (BLE sensor,
+  camera, printer, medical probe), a network endpoint, anything with a
+  connection lifecycle and a background thread pushing events. Generates
+  `{Entity}Manager` → `{Entity}Session` → `I{Channel}`/`Simulator{Channel}`.
+- **`library`** — the SDK is a self-contained compute object: input goes in,
+  output comes out, on the calling thread, no external device involved at
+  all (an image/audio codec, a signal-processing pipeline, a file-format
+  parser, on-device ML inference, a crypto primitive). Generates a single
+  Pimpl `{Entity}` with a synchronous `Create → Process → Destroy` C API,
+  an explicit-ownership output buffer, and an optional progress callback —
+  no discovery, no session, no background thread.
+
+If the request mentions hardware, a physical/network device, "before we
+have hardware", or streaming telemetry, it's `device`. If it mentions
+processing/transforming/encoding/parsing/inferring on data the caller
+already has in hand, it's `library`. When genuinely unsure, ask directly
+rather than guessing — the two skeletons don't overlap much.
+
 ### 1. Interview the user
 
 Don't guess these — ask, because they shape every generated file:
 
 - **SDK name** (PascalCase, e.g. `SensorSDK`) — becomes the library target,
   the `.xcframework` name, and the umbrella header name.
-- **Entity name** (PascalCase, e.g. `Sensor`, `Camera`, `Printer`) — the
-  thing the SDK discovers and connects to. Drives `{Entity}Manager`,
-  `{Entity}Session`, `{Entity}Info`.
-- **Channel name** (PascalCase, default `Transport`; alternatives: `Link`,
-  `Channel`) — the abstract backend interface, `I{Channel}`.
+- **Entity name** (PascalCase) — for `device`, the thing the SDK discovers
+  and connects to (e.g. `Sensor`, `Camera`, `Printer`; drives
+  `{Entity}Manager`, `{Entity}Session`, `{Entity}Info`). For `library`, the
+  compute object itself (e.g. `Encoder`, `Decoder`, `Processor`; drives the
+  single Pimpl `{Entity}` class and its `Create`/`Process`/`Destroy` calls).
+- **Channel name** (PascalCase) — the swappable-implementation interface.
+  For `device`, the transport (default `Transport`; alternatives `Link`,
+  `Channel`) → `I{Channel}`/`Simulator{Channel}`. For `library`, the backend
+  implementation (default `Backend`; alternatives `Codec`, `Engine`) →
+  `I{Channel}`/`Reference{Channel}`.
 - **C API prefix** (short, uppercase, e.g. `SNS`) — prefixes every exported
   C function and type (`SNS_GetVersion`, `SNSDeviceInfo`).
 - **Internal namespace** (lowercase, e.g. `sns`) — wraps the C++-only code
@@ -52,8 +82,9 @@ Don't guess these — ask, because they shape every generated file:
   project (mirroring a `<SDK>/` + `<SDK>.xcframework/` + `<Client>/` layout).
 
 If the user already described their domain in the conversation (e.g. "BLE
-heart-rate strap"), infer sensible defaults for entity/channel names and
-confirm them rather than re-asking from scratch.
+heart-rate strap", "wrap our JPEG encoder"), infer sensible defaults for
+kind/entity/channel names and confirm them rather than re-asking from
+scratch.
 
 If a `SDK/Public/Internal/Private` three-tier split was explicitly
 requested (see the "Layered structure" note in
@@ -69,9 +100,16 @@ Run the bundled scaffolder — it's deterministic and already
 compile-verified, so prefer it over writing the files by hand:
 
 ```bash
+# device kind (default; --kind device is implicit)
 python3 <skill-dir>/scripts/scaffold.py \
   --sdk-name SensorSDK --entity-name Sensor --channel-name Link \
   --api-prefix SNS --namespace sns \
+  --output /path/to/repo
+
+# library kind
+python3 <skill-dir>/scripts/scaffold.py --kind library \
+  --sdk-name ImageCodecSDK --entity-name Encoder \
+  --api-prefix ICS --namespace ics \
   --output /path/to/repo
 ```
 
@@ -81,7 +119,7 @@ output directory unless `--force` is passed — respect that guard rather
 than routing around it; if the target already has content, ask the user
 before forcing.
 
-This produces:
+`--kind device` produces:
 
 ```
 <repo>/
@@ -103,6 +141,30 @@ This produces:
   .gitignore
 ```
 
+`--kind library` produces the same outer shape, but the SDK-internal part
+is flatter — no discovery/session/transport layer, just one compute object
+and a swappable backend behind it:
+
+```
+<repo>/
+  <SDK>/
+    include/<SDK>.h              C-ABI public header: Create/Process/Destroy,
+                                  an owned-buffer result, an optional progress callback
+    src/domain/types.h           internal C++ types (Options, ResultCode, ProgressCallback)
+    src/backend/I<Channel>.h             pure abstract compute-backend interface
+    src/backend/Reference<Channel>.*     correctness-first default implementation
+    src/backend/<Channel>Factory.*       single creation point for backends
+    src/core/<Entity>.*                  Pimpl compute object, owns the backend
+    src/capi/<entity>_c_api.cpp          C-ABI facade (POD <-> C++ conversion, buffer ownership)
+    src/version.cpp
+    framework/module.modulemap
+    tools/smoke_test.cpp
+    CMakeLists.txt
+  build_xcframework.sh
+  CLAUDE.md
+  .gitignore
+```
+
 ### 3. Verify it actually builds before handing it back
 
 Never claim the scaffold works without running it — templates drift and a
@@ -121,10 +183,10 @@ catches iOS-cross-compile-only breakage (the macOS-only build above won't).
 
 ### 4. Fill in the real domain
 
-The scaffold ships with a deliberately generic placeholder: `Sample` (raw
-byte buffer + timestamp) standing in for whatever payload the real device
-produces (an image frame, a sensor reading, a telemetry packet). Point the
-user at:
+**`device` kind.** The scaffold ships with a deliberately generic
+placeholder: `Sample` (raw byte buffer + timestamp) standing in for
+whatever payload the real device produces (an image frame, a sensor
+reading, a telemetry packet). Point the user at:
 
 - `src/domain/types.h` and `include/<SDK>.h` — replace `Sample`/`{API}Sample`
   with the real payload shape, keeping the public struct POD with a leading
@@ -142,6 +204,32 @@ user at:
 - `src/transport/I<Channel>.h` and `<Channel>Factory.*` — add a second,
   hardware-backed implementation here when real hardware is available; nothing
   above the interface needs to change.
+
+**`library` kind.** The scaffold ships with a deliberately trivial
+placeholder transform (XOR every byte with `options.level` in
+`Reference<Channel>::process()`) standing in for the real algorithm. Point
+the user at:
+
+- `src/domain/types.h` and `include/<SDK>.h` — replace `{Entity}Options`
+  (currently one `level` int) and, if the domain needs it, add a second
+  input/output shape beyond a flat byte buffer (e.g. width/height alongside
+  raw pixels) — keep POD with a leading `struct_size`.
+- `src/backend/Reference<Channel>.cpp` — replace the placeholder transform
+  with the real algorithm, keeping the shape: validate input, report
+  progress a reasonable number of times (not per-byte), return a
+  `ResultCode`, fill `output`. This is a *correctness-first* reference
+  implementation — it's fine (even good) if it's not the fastest version;
+  see the next point for how a faster path fits in.
+- `src/backend/I<Channel>.h` and `<Channel>Factory.*` — add a second,
+  faster/accelerated implementation here (SIMD, GPU, a vendor codec) only
+  when the domain genuinely has one; nothing above the interface needs to
+  change. Don't add this speculatively — an interface with exactly one
+  permanent implementation is needless indirection (see the factory section
+  of `references/architecture-patterns.md`).
+- `src/capi/<entity>_c_api.cpp` — the ownership-transfer pattern
+  (`new[]`-allocate the result, free via a matching `FreeResult` call) is
+  usually correct as-is; only touch it if the output shape changes beyond a
+  flat buffer.
 
 ### 5. Swift client integration (if applicable)
 

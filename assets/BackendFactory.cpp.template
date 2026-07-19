@@ -1,0 +1,24 @@
+//
+// backend/{{CHANNEL_NAME}}Factory.cpp
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//
+// Copyright (c) {{YEAR}} {{AUTHOR}}
+//
+// Distributed under the MIT License. (See accompanying file LICENSE.txt)
+//
+
+#include "backend/{{CHANNEL_NAME}}Factory.h"
+
+#include "backend/Reference{{CHANNEL_NAME}}.h"
+
+namespace {{NAMESPACE}} {
+
+std::unique_ptr<I{{CHANNEL_NAME}}> {{CHANNEL_NAME}}Factory::Create({{CHANNEL_NAME}}Mode mode) {
+    switch (mode) {
+        case {{CHANNEL_NAME}}Mode::Reference:
+        default:
+            return std::make_unique<Reference{{CHANNEL_NAME}}>();
+    }
+}
+
+} // namespace {{NAMESPACE}}

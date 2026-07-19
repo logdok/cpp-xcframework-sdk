@@ -1,0 +1,123 @@
+//
+// {{SDK_NAME}}.h
+// ~~~~~~~~~~~~~~
+//
+// Copyright (c) {{YEAR}} {{AUTHOR}}
+//
+// Distributed under the MIT License. (See accompanying file LICENSE.txt)
+//
+
+#ifndef {{SDK_NAME_UPPER}}_H
+#define {{SDK_NAME_UPPER}}_H
+
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* --------------------------------------------------------------------
+ * Export macro.
+ * {{SDK_NAME_UPPER}}_BUILD is defined only when compiling the library itself
+ * (see CMakeLists.txt). Any consumer including this header from the
+ * outside gets the "import" variant automatically.
+ * ------------------------------------------------------------------ */
+#if defined(_WIN32)
+  #ifdef {{SDK_NAME_UPPER}}_BUILD
+    #define {{API_PREFIX}}_API __declspec(dllexport)
+  #else
+    #define {{API_PREFIX}}_API __declspec(dllimport)
+  #endif
+#else
+  #define {{API_PREFIX}}_API __attribute__((visibility("default")))
+#endif
+
+/* --------------------------------------------------------------------
+ * {{API_PREFIX}}Version
+ * Plain POD struct, no STL, no pointers -> stable across compilers.
+ * ------------------------------------------------------------------ */
+typedef struct {{API_PREFIX}}Version
+{
+    uint32_t major;
+    uint32_t minor;
+    uint32_t patch;
+    uint32_t build;
+} {{API_PREFIX}}Version;
+
+/* Returns the current SDK version. Never throws, never allocates. */
+{{API_PREFIX}}_API {{API_PREFIX}}Version {{API_PREFIX}}_GetVersion(void);
+
+/* ====================================================================
+ * {{ENTITY_NAME}} -- a self-contained compute object.
+ *
+ * This SDK is a pure compute library: no discovery, no connection, no
+ * background streaming. A {{ENTITY_NAME}} is created once with a set of
+ * options, processes buffers synchronously on the calling thread via
+ * {{API_PREFIX}}_{{ENTITY_NAME}}_Process(), and is destroyed when done.
+ * ================================================================== */
+
+/* Tuning options for a {{ENTITY_NAME}}. `struct_size` lets this grow later
+ * without breaking already-compiled callers -- they compare against their
+ * own sizeof(). Replace `level` with whatever your algorithm actually
+ * takes (quality, compression level, model path, thread count, ...). */
+typedef struct {{API_PREFIX}}{{ENTITY_NAME}}Options
+{
+    uint32_t struct_size;
+    int32_t  level; /* placeholder tunable, 0..10 */
+} {{API_PREFIX}}{{ENTITY_NAME}}Options;
+
+/* Opaque handle -- callers never see the struct internals. */
+struct {{API_PREFIX}}{{ENTITY_NAME}};
+typedef struct {{API_PREFIX}}{{ENTITY_NAME}}* {{API_PREFIX}}{{ENTITY_NAME}}Ref;
+
+/* Creates a {{ENTITY_NAME_LOWER}} with the given options. Returns NULL if
+ * the options are invalid. */
+{{API_PREFIX}}_API {{API_PREFIX}}{{ENTITY_NAME}}Ref {{API_PREFIX}}_{{ENTITY_NAME}}_Create({{API_PREFIX}}{{ENTITY_NAME}}Options options);
+
+/* Destroys the {{ENTITY_NAME_LOWER}} and frees memory. NULL-safe. */
+{{API_PREFIX}}_API void {{API_PREFIX}}_{{ENTITY_NAME}}_Destroy({{API_PREFIX}}{{ENTITY_NAME}}Ref {{ENTITY_NAME_LOWER}});
+
+/* Outcome of a Process() call. */
+typedef enum {{API_PREFIX}}Result
+{
+    {{API_PREFIX}}_OK              = 0,
+    {{API_PREFIX}}_INVALID_INPUT   = 1,
+    {{API_PREFIX}}_BACKEND_FAILURE = 2
+} {{API_PREFIX}}Result;
+
+/* An owned output buffer. Process() allocates `data`; the caller MUST pass
+ * it to {{API_PREFIX}}_{{ENTITY_NAME}}_FreeResult() exactly once when done with it --
+ * this is an ownership-transfer boundary, unlike the borrowed, callback-scoped
+ * pointers a streaming/device SDK hands out. */
+typedef struct {{API_PREFIX}}Buffer
+{
+    uint8_t* data;
+    int32_t  size;
+} {{API_PREFIX}}Buffer;
+
+/* Optional progress reporting for long-running calls. `progress` is 0..1.
+ * May be called from the calling thread during Process() (this SDK is
+ * synchronous); pass NULL if you don't want progress updates. */
+typedef void (*{{API_PREFIX}}ProgressCallback)(float progress, void* user_data);
+
+/* Processes `input` (input_size bytes) and writes the result into
+ * *out_result. Synchronous: returns only once processing is complete or has
+ * failed. On any non-{{API_PREFIX}}_OK return, *out_result is zeroed and does
+ * NOT need freeing. NULL-safe on {{ENTITY_NAME_LOWER}}/input/out_result
+ * (returns {{API_PREFIX}}_INVALID_INPUT). */
+{{API_PREFIX}}_API {{API_PREFIX}}Result {{API_PREFIX}}_{{ENTITY_NAME}}_Process({{API_PREFIX}}{{ENTITY_NAME}}Ref      {{ENTITY_NAME_LOWER}},
+                                                                                const uint8_t*                    input,
+                                                                                int32_t                           input_size,
+                                                                                {{API_PREFIX}}ProgressCallback     progress,
+                                                                                void*                              user_data,
+                                                                                {{API_PREFIX}}Buffer*              out_result);
+
+/* Frees a buffer previously filled by Process(). NULL-safe; safe to call
+ * on an already-zeroed buffer. */
+{{API_PREFIX}}_API void {{API_PREFIX}}_{{ENTITY_NAME}}_FreeResult({{API_PREFIX}}Buffer* result);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* {{SDK_NAME_UPPER}}_H */

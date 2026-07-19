@@ -1,0 +1,82 @@
+cmake_minimum_required(VERSION 3.20)
+project({{SDK_NAME}} VERSION 0.1.0 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+add_library({{SDK_NAME}} SHARED
+    src/version.cpp
+    src/core/{{ENTITY_NAME}}.cpp
+    src/backend/{{CHANNEL_NAME}}Factory.cpp
+    src/backend/Reference{{CHANNEL_NAME}}.cpp
+    src/capi/{{ENTITY_NAME_LOWER}}_c_api.cpp
+    include/{{SDK_NAME}}.h
+)
+
+# Only the library's own translation units get dllexport/visibility "export"
+# behavior; consumers including the header get the import path.
+target_compile_definitions({{SDK_NAME}} PRIVATE {{SDK_NAME_UPPER}}_BUILD)
+
+target_include_directories({{SDK_NAME}} PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+
+# Internal C++ headers (domain/, backend/, core/) resolve relative to src/
+# and are never exported.
+target_include_directories({{SDK_NAME}} PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+
+if(APPLE)
+    # Build as a real .framework bundle (not a bare .dylib) so it can be
+    # wrapped 1:1 into an .xcframework with `xcodebuild -create-xcframework`.
+    set_target_properties({{SDK_NAME}} PROPERTIES
+        FRAMEWORK TRUE
+        FRAMEWORK_VERSION A
+        MACOSX_FRAMEWORK_IDENTIFIER "{{BUNDLE_ID}}"
+        MACOSX_FRAMEWORK_BUNDLE_VERSION ${PROJECT_VERSION}
+        MACOSX_FRAMEWORK_SHORT_VERSION_STRING ${PROJECT_VERSION}
+        MACOSX_RPATH ON
+        INSTALL_NAME_DIR "@rpath"
+        PUBLIC_HEADER include/{{SDK_NAME}}.h
+        VERSION ${PROJECT_VERSION}
+        SOVERSION 0
+    )
+
+    # CMake's FRAMEWORK support copies the public header into
+    # {{SDK_NAME}}.framework/Headers/, but it does NOT generate a Clang module
+    # map on its own. Without one, Swift can't `import {{SDK_NAME}}`. So we
+    # inject our own module map straight from source control.
+    add_custom_command(TARGET {{SDK_NAME}} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+                "$<TARGET_BUNDLE_DIR:{{SDK_NAME}}>/Modules"
+        COMMAND ${CMAKE_COMMAND} -E copy
+                "${CMAKE_CURRENT_SOURCE_DIR}/framework/module.modulemap"
+                "$<TARGET_BUNDLE_DIR:{{SDK_NAME}}>/Modules/module.modulemap"
+        COMMENT "Injecting Clang module map into {{SDK_NAME}}.framework"
+    )
+else()
+    set_target_properties({{SDK_NAME}} PROPERTIES
+        VERSION ${PROJECT_VERSION}
+        SOVERSION 0
+    )
+
+    install(TARGETS {{SDK_NAME}}
+        LIBRARY DESTINATION lib
+        ARCHIVE DESTINATION lib
+        RUNTIME DESTINATION bin
+    )
+    install(FILES include/{{SDK_NAME}}.h DESTINATION include)
+endif()
+
+# ----------------------------------------------------------------------
+# Small sanity-check executable so you can verify the library works from
+# an IDE alone, without involving Swift at all.
+# Skipped when cross-compiling for iOS: a bare CLI binary can't run there,
+# and iOS toolchains are picky about signing plain executables.
+# ----------------------------------------------------------------------
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    add_executable({{SDK_NAME_LOWER}}_smoke_test tools/smoke_test.cpp)
+    target_link_libraries({{SDK_NAME_LOWER}}_smoke_test PRIVATE {{SDK_NAME}})
+endif()

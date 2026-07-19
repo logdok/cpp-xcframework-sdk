@@ -1,0 +1,30 @@
+//
+// backend/Reference{{CHANNEL_NAME}}.h
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//
+// Copyright (c) {{YEAR}} {{AUTHOR}}
+//
+// Distributed under the MIT License. (See accompanying file LICENSE.txt)
+//
+
+#pragma once
+
+// The default I{{CHANNEL_NAME}} implementation: correct and simple, not
+// necessarily fast. This is what ships until a real algorithm replaces the
+// placeholder transform below -- keep it as the safe fallback / reference
+// oracle even after a faster backend exists, so the two can be tested
+// against each other.
+
+#include "backend/I{{CHANNEL_NAME}}.h"
+
+namespace {{NAMESPACE}} {
+
+class Reference{{CHANNEL_NAME}} final : public I{{CHANNEL_NAME}} {
+public:
+    ResultCode process(const std::vector<uint8_t>& input,
+                        const {{ENTITY_NAME}}Options& options,
+                        const ProgressCallback& onProgress,
+                        std::vector<uint8_t>& output) override;
+};
+
+} // namespace {{NAMESPACE}}

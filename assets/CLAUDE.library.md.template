@@ -1,0 +1,93 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code when working with code in this repository.
+
+## Project Overview
+
+Cross-platform C++ compute SDK wrapped as an Apple XCFramework, exposing a
+pure C-ABI so the same compiled library can later be consumed from Android
+(`.aar`), Windows (`.dll`), or any other C-capable host without C++ ABI
+coupling. This SDK is self-contained: it does not discover, connect to, or
+stream from any external device -- callers create a `{{ENTITY_NAME}}`,
+call `Process()` synchronously, and destroy it.
+
+## Architecture
+
+```
+{{SDK_NAME}}/            C++17 CMake library -> builds as .framework per platform slice
+  include/                 C-ABI public header (no STL, no exceptions cross the line)
+  src/                     C++ implementation (STL/templates/Pimpl free to use here)
+  framework/module.modulemap  Clang module map injected post-build so Swift can import {{SDK_NAME}}
+  tools/smoke_test.cpp   standalone CLI sanity check (skipped when cross-compiling for iOS)
+
+build_xcframework.sh    builds 3 slices (macOS fat, iOS device arm64, iOS sim fat),
+                        assembles them into {{SDK_NAME}}.xcframework at repo root
+
+{{SDK_NAME}}.xcframework/   output artifact; consumed by a Swift client via ../{{SDK_NAME}}.xcframework
+```
+
+## Build Commands
+
+**Build {{SDK_NAME}}.xcframework** (run from repo root):
+```bash
+./build_xcframework.sh
+```
+
+**Build for macOS only** (faster iteration):
+```bash
+cmake -S {{SDK_NAME}} -B {{SDK_NAME}}/build-macos -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+cmake --build {{SDK_NAME}}/build-macos --target {{SDK_NAME}}
+```
+
+**Run smoke test** (macOS only):
+```bash
+cmake --build {{SDK_NAME}}/build-macos --target {{SDK_NAME_LOWER}}_smoke_test
+./{{SDK_NAME}}/build-macos/{{SDK_NAME_LOWER}}_smoke_test
+```
+
+## C++ Architecture Principles
+
+**C-ABI boundary** -- `include/{{SDK_NAME}}.h` is pure C: no STL types, no
+exceptions, no C++ references crossing the boundary. POD structs only, with
+a leading `struct_size` field on anything likely to grow.
+
+**Explicit ownership transfer for output buffers** -- `Process()` doesn't
+know the output size ahead of time, so it allocates `{{API_PREFIX}}Buffer::data`
+with `new[]` and hands ownership to the caller. The caller MUST pass it to
+`{{API_PREFIX}}_{{ENTITY_NAME}}_FreeResult()` exactly once. This is a different ABI
+contract from a streaming/device SDK, where callback pointers are borrowed
+and valid only for the duration of the call -- know which contract a given
+pointer follows before touching it.
+
+**Pimpl idiom** -- `{{ENTITY_NAME}}` hides its implementation behind
+`class Impl`. The destructor is declared in the `.h` and defined in the
+`.cpp` (where `Impl` is complete), keeping `unique_ptr<Impl>` working with
+an incomplete type in the header.
+
+**Pure abstract interface** (`I{{CHANNEL_NAME}}`) -- `{{ENTITY_NAME}}` never
+holds a pointer to the concrete implementation, only to `I{{CHANNEL_NAME}}`.
+`Reference{{CHANNEL_NAME}}` is the default, correctness-first implementation;
+add a faster one (SIMD, GPU, a vendor codec) as a second class without
+touching `{{ENTITY_NAME}}` or the C-ABI facade.
+
+**Factory as the single creation point** -- `{{CHANNEL_NAME}}Factory::Create({{CHANNEL_NAME}}Mode)`
+is the only place that instantiates a concrete `I{{CHANNEL_NAME}}`. Callers
+never `new` one directly.
+
+**Synchronous by default** -- unlike a device SDK, there is no background
+thread and no async delivery here. `Process()` runs on the calling thread
+and returns when done; `{{API_PREFIX}}ProgressCallback` (optional) fires
+synchronously during that call, not from a worker thread. If a real
+implementation needs a worker thread (e.g. to keep a GPU queue busy), keep
+that entirely inside the backend and still block the calling thread in
+`process()` until the result is ready -- don't turn this API async without
+a real reason a caller would need it.
+
+## Key Constraints
+
+- Public header in `include/` must remain pure C: no STL types, no C++
+  exceptions, no C++ references. Structs should be POD.
+- `framework/module.modulemap` is hand-maintained and injected via a CMake
+  post-build step -- keep it in sync when the public header changes.
+- Deployment targets: macOS {{DEPLOYMENT_TARGET_MACOS}}, iOS {{DEPLOYMENT_TARGET_IOS}} (defined in `build_xcframework.sh`).

@@ -3,9 +3,24 @@
 XCFramework build pipeline, following the layered/Pimpl/interface/factory
 pattern documented in ../references/architecture-patterns.md.
 
+Two --kind profiles are available:
+  device  (default) -- discovers/connects to an external device over a
+           swappable transport, with async streaming callbacks and a
+           SimulatorTransport that fabricates hardware failures. Use for
+           BLE sensors, cameras, printers, medical devices, IoT, ...
+  library -- a self-contained synchronous compute object (Create/Process/
+           Destroy), no discovery/session/transport at all, with an
+           explicit-ownership output buffer and an optional progress
+           callback. Use for codecs, image/signal processing, parsers,
+           on-device ML inference, ...
+
 Usage:
     python3 scaffold.py --sdk-name SensorSDK --entity-name Sensor \
         --api-prefix SNS --namespace sns --output /path/to/repo
+
+    python3 scaffold.py --kind library --sdk-name ImageCodecSDK \
+        --entity-name Encoder --api-prefix ICS --namespace ics \
+        --output /path/to/repo
 
 Run with --help for the full option list. Safe to re-run: it refuses to
 overwrite an existing output directory unless --force is given.
@@ -22,9 +37,9 @@ SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ASSETS_DIR = os.path.join(SKILL_DIR, "assets")
 
 # (template filename, output path relative to repo root, executable)
-# {SDK} / {ENTITY_LOWER} are resolved per-invocation since output paths
-# depend on user-supplied names.
-FILE_MAP = [
+# {sdk} / {entity} / {entity_lower} / {channel} are resolved per-invocation
+# since output paths depend on user-supplied names.
+FILE_MAP_DEVICE = [
     ("PublicHeader.h.template", "{sdk}/include/{sdk}.h", False),
     ("domain_types.h.template", "{sdk}/src/domain/types.h", False),
     ("IChannel.h.template", "{sdk}/src/transport/I{channel}.h", False),
@@ -45,6 +60,32 @@ FILE_MAP = [
     ("CLAUDE.md.template", "CLAUDE.md", False),
     ("gitignore.template", ".gitignore", False),
 ]
+
+# library profile: a self-contained synchronous compute object, no
+# discovery/session/transport. {channel} here names the swappable backend
+# *implementation* (e.g. "Backend", "Codec", "Engine"), not a comms channel.
+FILE_MAP_LIBRARY = [
+    ("PublicHeaderLibrary.h.template", "{sdk}/include/{sdk}.h", False),
+    ("domain_types_library.h.template", "{sdk}/src/domain/types.h", False),
+    ("ProcessorBackend.h.template", "{sdk}/src/backend/I{channel}.h", False),
+    ("ReferenceBackend.h.template", "{sdk}/src/backend/Reference{channel}.h", False),
+    ("ReferenceBackend.cpp.template", "{sdk}/src/backend/Reference{channel}.cpp", False),
+    ("BackendFactory.h.template", "{sdk}/src/backend/{channel}Factory.h", False),
+    ("BackendFactory.cpp.template", "{sdk}/src/backend/{channel}Factory.cpp", False),
+    ("Processor.h.template", "{sdk}/src/core/{entity}.h", False),
+    ("Processor.cpp.template", "{sdk}/src/core/{entity}.cpp", False),
+    ("version.cpp.template", "{sdk}/src/version.cpp", False),
+    ("capi_library.cpp.template", "{sdk}/src/capi/{entity_lower}_c_api.cpp", False),
+    ("CMakeLists.library.txt.template", "{sdk}/CMakeLists.txt", False),
+    ("module.modulemap.template", "{sdk}/framework/module.modulemap", False),
+    ("smoke_test_library.cpp.template", "{sdk}/tools/smoke_test.cpp", False),
+    ("build_xcframework.sh.template", "build_xcframework.sh", True),
+    ("CLAUDE.library.md.template", "CLAUDE.md", False),
+    ("gitignore.template", ".gitignore", False),
+]
+
+FILE_MAPS = {"device": FILE_MAP_DEVICE, "library": FILE_MAP_LIBRARY}
+DEFAULT_CHANNEL_NAME = {"device": "Transport", "library": "Backend"}
 
 PLACEHOLDER_RE = re.compile(r"\{\{(\w+)\}\}")
 
@@ -107,9 +148,16 @@ def render(text: str, ctx: dict) -> str:
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--kind", choices=["device", "library"], default="device",
+                    help="device: discover/connect/stream from external hardware (default). "
+                         "library: self-contained synchronous compute object, no transport/session at all.")
     p.add_argument("--sdk-name", required=True, help="e.g. SensorSDK (PascalCase; library/target/framework name)")
-    p.add_argument("--entity-name", required=True, help="e.g. Sensor (the thing the SDK discovers/connects to)")
-    p.add_argument("--channel-name", default="Transport", help="e.g. Transport, Link, Channel (default: Transport)")
+    p.add_argument("--entity-name", required=True,
+                    help="e.g. Sensor for --kind device (the thing the SDK discovers/connects to), "
+                         "or Encoder/Processor for --kind library (the compute object)")
+    p.add_argument("--channel-name", default=None,
+                    help="the swappable-implementation interface name: Transport/Link/Channel for --kind device "
+                         "(default: Transport), Backend/Codec/Engine for --kind library (default: Backend)")
     p.add_argument("--api-prefix", required=True, help="short uppercase C-API prefix, e.g. SNS")
     p.add_argument("--namespace", required=True, help="lowercase internal C++ namespace, e.g. sns")
     p.add_argument("--bundle-id", default=None, help="default: com.example.<sdkname-lower>")
@@ -120,6 +168,9 @@ def main() -> int:
     p.add_argument("--output", required=True, help="repo root to scaffold into")
     p.add_argument("--force", action="store_true", help="overwrite files if the output dir already exists")
     args = p.parse_args()
+
+    if args.channel_name is None:
+        args.channel_name = DEFAULT_CHANNEL_NAME[args.kind]
 
     if not re.fullmatch(r"[A-Z][A-Za-z0-9]*", args.api_prefix):
         p.error("--api-prefix must start with a capital letter and contain only letters/digits (e.g. SNS)")
@@ -134,7 +185,7 @@ def main() -> int:
         return 1
 
     written = []
-    for template_name, rel_path_pattern, executable in FILE_MAP:
+    for template_name, rel_path_pattern, executable in FILE_MAPS[args.kind]:
         rel_path = rel_path_pattern.format(
             sdk=ctx["SDK_NAME"], entity=ctx["ENTITY_NAME"], entity_lower=ctx["ENTITY_NAME_LOWER"], channel=ctx["CHANNEL_NAME"]
         )
