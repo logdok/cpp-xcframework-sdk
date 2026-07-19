@@ -107,32 +107,55 @@ compile times and coupling down even on the pure-C++ side of the boundary.
 
 `I{Channel}` is a pure abstract class — every method is `= 0` except ones
 with a sensible universal default (marked non-pure so backends only
-override what they actually support). Code above the interface
-(`{Entity}Session`) holds `std::unique_ptr<I{Channel}>` and never knows or
-cares whether the concrete backend is `Simulator{Channel}`, a real hardware
-backend, a replay-from-file backend, or a test mock. This is what makes all
-four of those interchangeable without touching `{Entity}Session` or the
-C-ABI facade.
+override what they actually support). Code above the interface holds
+`std::unique_ptr<I{Channel}>` and never knows or cares which concrete
+implementation is behind it. In the `device` kind that's `{Entity}Session`
+over a transport — simulator, real hardware, replay-from-file, or a test
+mock, all interchangeable. In the `library` kind that's the `{Entity}`
+compute object over `Reference{Channel}` — with a faster SIMD/GPU/vendor
+implementation swappable in later, and the reference kept around as the
+correctness oracle the fast path is tested against. Either way, nothing
+above the interface (including the C-ABI facade) changes when an
+implementation is added.
 
 ## Factory as the single creation point
 
 `{Channel}Factory::Create({Channel}Mode)` is the *only* place that calls
-`new Simulator{Channel}()` (or, later, `new Real{Channel}()`). Nothing else
-in the codebase is allowed to instantiate a concrete backend directly. This
-means adding a hardware backend later is: write the class, add one `case`
+`new Simulator{Channel}()` / `new Reference{Channel}()` (or, later,
+`new Real{Channel}()` / `new Optimized{Channel}()`). Nothing else in the
+codebase is allowed to instantiate a concrete backend directly. This means
+adding a second implementation later is: write the class, add one `case`
 to the factory's switch, done — every call site that already goes through
 the factory picks it up for free, and there is exactly one place to look
-when deciding what backend a given mode maps to.
+when deciding what implementation a given mode maps to.
 
-## Async via `std::function` callbacks, internally
+One caution, mainly for the `library` kind: the interface+factory pair
+earns its keep when a second implementation is *plausible* (the `device`
+kind always has at least two — simulator and real hardware; a compute SDK
+has two only if a faster/accelerated path is actually on the roadmap). An
+interface with exactly one permanent implementation is needless
+indirection — if it becomes clear no second backend is ever coming, it's
+fine to collapse the interface into the concrete class rather than
+maintain ceremony for a future that won't arrive.
 
-Below the C-ABI boundary, async delivery uses `std::function<void(const T&)>`
-member fields (`SampleCallback`, `StateCallback`, `ErrorCallback`) set via
-`setXCallback()`. Worker threads (`std::thread worker_`) use
-`std::atomic<bool>` for the running/streaming flag and `join()` it on stop
-or in the destructor — never detach a worker that touches the object's
-members, or you get a use-after-free the moment the object destructs while
-the thread is still running.
+## `std::function` callbacks below the boundary, C function pointers above it
+
+Below the C-ABI boundary, callbacks are `std::function<void(const T&)>`
+member fields set via `setXCallback()`. The threading contract differs by
+kind, and both sides of the boundary must agree on it:
+
+- **`device` kind** — delivery is asynchronous: worker threads
+  (`std::thread worker_`) push samples/state/errors while streaming.
+  Workers use `std::atomic<bool>` for the running/streaming flag and
+  `join()` on stop or in the destructor — never detach a worker that
+  touches the object's members, or you get a use-after-free the moment the
+  object destructs while the thread is still running.
+- **`library` kind** — there is exactly one callback (`ProgressCallback`)
+  and it fires *synchronously on the calling thread* during `process()`.
+  No worker thread, no atomics needed. If a backend internally uses threads
+  (a GPU queue, a thread pool), it still blocks `process()` until done and
+  invokes progress from the calling thread — keeping the public contract
+  synchronous unless a caller genuinely needs otherwise.
 
 At the C-ABI boundary, `std::function` cannot cross (it's not POD), so the
 facade converts each registration into a matching C function pointer +
