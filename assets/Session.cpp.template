@@ -1,0 +1,58 @@
+//
+// session/{{ENTITY_NAME}}Session.cpp
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//
+// Copyright (c) {{YEAR}} {{AUTHOR}}
+//
+// Distributed under the MIT License. (See accompanying file LICENSE.txt)
+//
+
+#include "session/{{ENTITY_NAME}}Session.h"
+
+#include "transport/I{{CHANNEL_NAME}}.h"
+
+namespace {{NAMESPACE}} {
+
+class {{ENTITY_NAME}}Session::Impl {
+public:
+    explicit Impl(std::unique_ptr<I{{CHANNEL_NAME}}> channel)
+        : channel_(std::move(channel)) {}
+
+    std::unique_ptr<I{{CHANNEL_NAME}}> channel_;
+};
+
+{{ENTITY_NAME}}Session::{{ENTITY_NAME}}Session(std::unique_ptr<I{{CHANNEL_NAME}}> channel)
+    : impl_(std::make_unique<Impl>(std::move(channel))) {}
+
+// Defined here (not defaulted in the header) because Impl is only complete
+// in this translation unit -- required for unique_ptr<Impl> to work with an
+// incomplete type in the header.
+{{ENTITY_NAME}}Session::~{{ENTITY_NAME}}Session() {
+    impl_->channel_->close();
+}
+
+void {{ENTITY_NAME}}Session::setSampleCallback(SampleCallback callback) {
+    impl_->channel_->setSampleCallback(std::move(callback));
+}
+
+void {{ENTITY_NAME}}Session::setStateCallback(StateCallback callback) {
+    impl_->channel_->setStateCallback(std::move(callback));
+}
+
+void {{ENTITY_NAME}}Session::setErrorCallback(ErrorCallback callback) {
+    impl_->channel_->setErrorCallback(std::move(callback));
+}
+
+void {{ENTITY_NAME}}Session::startStreaming() {
+    impl_->channel_->startStreaming();
+}
+
+void {{ENTITY_NAME}}Session::stopStreaming() {
+    impl_->channel_->stopStreaming();
+}
+
+void {{ENTITY_NAME}}Session::disconnect() {
+    impl_->channel_->close();
+}
+
+} // namespace {{NAMESPACE}}

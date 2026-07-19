@@ -1,0 +1,47 @@
+//
+// session/{{ENTITY_NAME}}Session.h
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//
+// Copyright (c) {{YEAR}} {{AUTHOR}}
+//
+// Distributed under the MIT License. (See accompanying file LICENSE.txt)
+//
+
+#pragma once
+
+// A live connection to one {{ENTITY_NAME_LOWER}}. Owns the I{{CHANNEL_NAME}}
+// backend and re-exposes its async callbacks. Implementation hidden behind
+// Pimpl so the header stays stable while the backend selection logic
+// changes underneath.
+
+#include <memory>
+
+#include "domain/types.h"
+
+namespace {{NAMESPACE}} {
+
+class I{{CHANNEL_NAME}};
+
+class {{ENTITY_NAME}}Session {
+public:
+    // Takes ownership of an already-open channel.
+    explicit {{ENTITY_NAME}}Session(std::unique_ptr<I{{CHANNEL_NAME}}> channel);
+    ~{{ENTITY_NAME}}Session();
+
+    {{ENTITY_NAME}}Session(const {{ENTITY_NAME}}Session&)            = delete;
+    {{ENTITY_NAME}}Session& operator=(const {{ENTITY_NAME}}Session&) = delete;
+
+    void setSampleCallback(SampleCallback callback);
+    void setStateCallback(StateCallback callback);
+    void setErrorCallback(ErrorCallback callback);
+
+    void startStreaming();
+    void stopStreaming();
+    void disconnect();
+
+private:
+    class Impl;
+    std::unique_ptr<Impl> impl_;
+};
+
+} // namespace {{NAMESPACE}}

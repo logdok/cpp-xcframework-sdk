@@ -1,0 +1,61 @@
+//
+// domain/types.h
+// ~~~~~~~~~~~~~~
+//
+// Copyright (c) {{YEAR}} {{AUTHOR}}
+//
+// Distributed under the MIT License. (See accompanying file LICENSE.txt)
+//
+
+#pragma once
+
+// Internal C++ domain types. These live entirely below the C-ABI boundary
+// and are free to use STL -- they never appear in a public header. The C
+// facade (capi/*.cpp) converts them to/from the POD structs in the public
+// header.
+
+#include <cstdint>
+#include <functional>
+#include <string>
+#include <vector>
+
+namespace {{NAMESPACE}} {
+
+// Stable description of a {{ENTITY_NAME_LOWER}} seen during discovery. The
+// caller computes nothing from it -- it just displays the fields.
+struct {{ENTITY_NAME}}Info {
+    std::string id;
+    std::string name;
+    std::string model;
+    int         battery   = -1;   // 0..100, -1 unknown
+    bool        reachable = true;
+    bool        busy      = false;
+};
+
+// Lifecycle of a live session. Values mirror {{API_PREFIX}}SessionState.
+enum class SessionState {
+    Disconnected = 0,
+    Connected    = 1,
+    Streaming    = 2,
+    Reconnecting = 3,
+};
+
+// Non-fatal conditions reported via the error channel. Values mirror the
+// integer codes documented next to {{API_PREFIX}}ErrorCallback.
+enum class ErrorCode {
+    None = 0,
+    LinkLost = 1,
+};
+
+// One decoded data unit. Replace with the real payload shape for your
+// domain -- this placeholder is a raw byte buffer plus a timestamp.
+struct Sample {
+    std::vector<uint8_t> data;
+    uint64_t             timestamp = 0; // ms since epoch
+};
+
+using SampleCallback   = std::function<void(const Sample&)>;
+using StateCallback    = std::function<void(SessionState)>;
+using ErrorCallback    = std::function<void(ErrorCode, const std::string& message)>;
+
+} // namespace {{NAMESPACE}}

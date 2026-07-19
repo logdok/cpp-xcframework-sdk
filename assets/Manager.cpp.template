@@ -1,0 +1,89 @@
+//
+// discovery/{{ENTITY_NAME}}Manager.cpp
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//
+// Copyright (c) {{YEAR}} {{AUTHOR}}
+//
+// Distributed under the MIT License. (See accompanying file LICENSE.txt)
+//
+
+#include "discovery/{{ENTITY_NAME}}Manager.h"
+
+#include <atomic>
+#include <thread>
+
+#include "session/{{ENTITY_NAME}}Session.h"
+#include "transport/I{{CHANNEL_NAME}}.h"
+#include "transport/{{CHANNEL_NAME}}Factory.h"
+
+namespace {{NAMESPACE}} {
+
+using namespace std::chrono_literals;
+
+class {{ENTITY_NAME}}Manager::Impl {
+public:
+    explicit Impl(Callbacks callbacks) : callbacks_(std::move(callbacks)) {}
+
+    ~Impl() {
+        running_.store(false);
+        if (worker_.joinable()) worker_.join();
+    }
+
+    void start() {
+        if (running_.exchange(true)) return; // already running
+        worker_ = std::thread([this] { run(); });
+    }
+
+    void stop() {
+        if (!running_.exchange(false)) return; // not running
+        if (worker_.joinable()) worker_.join();
+    }
+
+    std::unique_ptr<{{ENTITY_NAME}}Session> connect(const std::string& id) {
+        // In a real backend this would look `id` up against the discovered
+        // set and fail if it is unknown/unreachable. The simulator accepts
+        // any id so the skeleton is exercisable end to end without a
+        // hardware-specific discovery protocol.
+        auto channel = {{CHANNEL_NAME}}Factory::Create({{CHANNEL_NAME}}Mode::Simulator);
+        if (!channel->open()) return nullptr;
+        return std::make_unique<{{ENTITY_NAME}}Session>(std::move(channel));
+    }
+
+private:
+    // Worker-thread loop: seeds a couple of simulated {{ENTITY_NAME_LOWER}}s
+    // once, then just idles. Replace with real discovery I/O (BLE scan,
+    // mDNS browse, ...) for a hardware-backed SDK.
+    void run() {
+        static const {{ENTITY_NAME}}Info seeds[] = {
+            {"AA001", "{{ENTITY_NAME}} 1", "SimModel", 90, true, false},
+            {"AA002", "{{ENTITY_NAME}} 2", "SimModel", 65, true, false},
+        };
+
+        for (const auto& info : seeds) {
+            if (!running_.load()) return;
+            if (callbacks_.onAdded) callbacks_.onAdded(info);
+        }
+
+        while (running_.load()) {
+            std::this_thread::sleep_for(200ms);
+        }
+    }
+
+    Callbacks         callbacks_;
+    std::atomic<bool> running_{false};
+    std::thread       worker_;
+};
+
+{{ENTITY_NAME}}Manager::{{ENTITY_NAME}}Manager(Callbacks callbacks)
+    : impl_(std::make_unique<Impl>(std::move(callbacks))) {}
+
+{{ENTITY_NAME}}Manager::~{{ENTITY_NAME}}Manager() = default;
+
+void {{ENTITY_NAME}}Manager::start() { impl_->start(); }
+void {{ENTITY_NAME}}Manager::stop() { impl_->stop(); }
+
+std::unique_ptr<{{ENTITY_NAME}}Session> {{ENTITY_NAME}}Manager::connect(const std::string& id) {
+    return impl_->connect(id);
+}
+
+} // namespace {{NAMESPACE}}

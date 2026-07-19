@@ -1,0 +1,5 @@
+framework module {{SDK_NAME}} {
+    umbrella header "{{SDK_NAME}}.h"
+    export *
+    module * { export * }
+}

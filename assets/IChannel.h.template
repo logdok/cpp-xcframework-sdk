@@ -1,0 +1,50 @@
+//
+// transport/I{{CHANNEL_NAME}}.h
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//
+// Copyright (c) {{YEAR}} {{AUTHOR}}
+//
+// Distributed under the MIT License. (See accompanying file LICENSE.txt)
+//
+
+#pragma once
+
+// Pure abstract transport boundary. {{ENTITY_NAME}}Session talks only to
+// this interface and never knows whether bytes come from BLE, Wi-Fi, a
+// simulator, a replay file, or a test mock. Concrete backends are added
+// over time (Simulator{{CHANNEL_NAME}} now; a real hardware backend later)
+// without touching any code above this line.
+
+#include "domain/types.h"
+
+namespace {{NAMESPACE}} {
+
+class I{{CHANNEL_NAME}} {
+public:
+    virtual ~I{{CHANNEL_NAME}}() = default;
+
+    // Opens the underlying channel. Returns false on failure.
+    virtual bool open() = 0;
+
+    // Closes the channel. Safe to call when already closed.
+    virtual void close() = 0;
+
+    // True while the channel is usable.
+    virtual bool isOpen() const = 0;
+
+    // Registers (or clears, with an empty function) the event sinks.
+    // Samples and state changes are delivered on a background thread while
+    // streaming is active. Set these before startStreaming() and do not
+    // change them while streaming, so the worker sees a stable, race-free
+    // view.
+    virtual void setSampleCallback(SampleCallback callback) = 0;
+    virtual void setStateCallback(StateCallback callback) = 0;
+    virtual void setErrorCallback(ErrorCallback callback) = 0;
+
+    // Starts / stops sample delivery. stopStreaming() must not return until
+    // the producing thread has stopped, so no callback fires afterwards.
+    virtual void startStreaming() = 0;
+    virtual void stopStreaming() = 0;
+};
+
+} // namespace {{NAMESPACE}}

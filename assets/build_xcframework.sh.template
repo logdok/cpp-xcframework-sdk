@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+#
+# Builds {{SDK_NAME}}.framework for macOS, iOS device, and iOS Simulator via
+# CMake's native Apple-platform cross-compilation support, then wraps
+# all three slices into a single {{SDK_NAME}}.xcframework. Run on macOS,
+# from the repo root.
+#
+#   ./build_xcframework.sh
+#
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SDK_DIR="$ROOT_DIR/{{SDK_NAME}}"
+OUTPUT_XCFRAMEWORK="$ROOT_DIR/{{SDK_NAME}}.xcframework"
+
+DEPLOYMENT_TARGET_MACOS="{{DEPLOYMENT_TARGET_MACOS}}"
+DEPLOYMENT_TARGET_IOS="{{DEPLOYMENT_TARGET_IOS}}"
+
+MACOS_BUILD_DIR="$SDK_DIR/build-macos"
+IOS_DEVICE_BUILD_DIR="$SDK_DIR/build-ios-device"
+IOS_SIM_BUILD_DIR="$SDK_DIR/build-ios-simulator"
+
+rm -rf "$MACOS_BUILD_DIR" "$IOS_DEVICE_BUILD_DIR" "$IOS_SIM_BUILD_DIR" "$OUTPUT_XCFRAMEWORK"
+
+build_slice () {
+    local build_dir="$1"; shift
+    echo "==> Configuring: $build_dir"
+    cmake -S "$SDK_DIR" -B "$build_dir" -DCMAKE_BUILD_TYPE=Release "$@"
+    echo "==> Building: $build_dir"
+    cmake --build "$build_dir" --target {{SDK_NAME}} --config Release
+}
+
+echo "########################################"
+echo "# 1/3 macOS (arm64 + x86_64)"
+echo "########################################"
+build_slice "$MACOS_BUILD_DIR" \
+    -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+    -DCMAKE_OSX_DEPLOYMENT_TARGET="$DEPLOYMENT_TARGET_MACOS"
+
+echo "########################################"
+echo "# 2/3 iOS device (arm64)"
+echo "########################################"
+build_slice "$IOS_DEVICE_BUILD_DIR" \
+    -DCMAKE_SYSTEM_NAME=iOS \
+    -DCMAKE_OSX_SYSROOT=iphoneos \
+    -DCMAKE_OSX_ARCHITECTURES="arm64" \
+    -DCMAKE_OSX_DEPLOYMENT_TARGET="$DEPLOYMENT_TARGET_IOS"
+
+echo "########################################"
+echo "# 3/3 iOS Simulator (arm64 + x86_64)"
+echo "########################################"
+build_slice "$IOS_SIM_BUILD_DIR" \
+    -DCMAKE_SYSTEM_NAME=iOS \
+    -DCMAKE_OSX_SYSROOT=iphonesimulator \
+    -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+    -DCMAKE_OSX_DEPLOYMENT_TARGET="$DEPLOYMENT_TARGET_IOS"
+
+MACOS_FRAMEWORK="$MACOS_BUILD_DIR/{{SDK_NAME}}.framework"
+IOS_DEVICE_FRAMEWORK="$IOS_DEVICE_BUILD_DIR/{{SDK_NAME}}.framework"
+IOS_SIM_FRAMEWORK="$IOS_SIM_BUILD_DIR/{{SDK_NAME}}.framework"
+
+for f in "$MACOS_FRAMEWORK" "$IOS_DEVICE_FRAMEWORK" "$IOS_SIM_FRAMEWORK"; do
+    if [ ! -d "$f" ]; then
+        echo "error: expected framework not found at $f" >&2
+        exit 1
+    fi
+    if [ ! -f "$f/Modules/module.modulemap" ]; then
+        echo "error: module.modulemap missing from $f" >&2
+        exit 1
+    fi
+done
+
+echo "==> Creating multi-platform {{SDK_NAME}}.xcframework"
+xcodebuild -create-xcframework \
+    -framework "$MACOS_FRAMEWORK" \
+    -framework "$IOS_DEVICE_FRAMEWORK" \
+    -framework "$IOS_SIM_FRAMEWORK" \
+    -output "$OUTPUT_XCFRAMEWORK"
+
+echo ""
+echo "Done: $OUTPUT_XCFRAMEWORK"
+echo "Slices inside:"
+ls "$OUTPUT_XCFRAMEWORK" | grep -v Info.plist

@@ -1,0 +1,81 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code when working with code in this repository.
+
+## Project Overview
+
+Cross-platform C++ SDK wrapped as an Apple XCFramework, exposing a pure C-ABI
+so the same compiled library can later be consumed from Android (`.aar`),
+Windows (`.dll`), or any other C-capable host without C++ ABI coupling.
+
+## Architecture
+
+```
+{{SDK_NAME}}/            C++17 CMake library -> builds as .framework per platform slice
+  include/                 C-ABI public header (no STL, no exceptions cross the line)
+  src/                     C++ implementation (STL/templates/Pimpl free to use here)
+  framework/module.modulemap  Clang module map injected post-build so Swift can import {{SDK_NAME}}
+  tools/smoke_test.cpp   standalone CLI sanity check (skipped when cross-compiling for iOS)
+
+build_xcframework.sh    builds 3 slices (macOS fat, iOS device arm64, iOS sim fat),
+                        assembles them into {{SDK_NAME}}.xcframework at repo root
+
+{{SDK_NAME}}.xcframework/   output artifact; consumed by a Swift client via ../{{SDK_NAME}}.xcframework
+```
+
+## Build Commands
+
+**Build {{SDK_NAME}}.xcframework** (run from repo root):
+```bash
+./build_xcframework.sh
+```
+
+**Build for macOS only** (faster iteration):
+```bash
+cmake -S {{SDK_NAME}} -B {{SDK_NAME}}/build-macos -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+cmake --build {{SDK_NAME}}/build-macos --target {{SDK_NAME}}
+```
+
+**Run smoke test** (macOS only):
+```bash
+cmake --build {{SDK_NAME}}/build-macos --target {{SDK_NAME_LOWER}}_smoke_test
+./{{SDK_NAME}}/build-macos/{{SDK_NAME_LOWER}}_smoke_test
+```
+
+## C++ Architecture Principles
+
+**C-ABI boundary** -- `include/{{SDK_NAME}}.h` is pure C: no STL types, no
+exceptions, no C++ references crossing the boundary. POD structs only, with
+a leading `struct_size` field on anything likely to grow, so the layout can
+change without breaking older consumers.
+
+**Pimpl idiom** -- concrete classes (`{{ENTITY_NAME}}Manager`, `{{ENTITY_NAME}}Session`) hide their
+implementation behind `class Impl`. The destructor is declared in the `.h`
+and defined in the `.cpp` (where `Impl` is complete), keeping `unique_ptr<Impl>`
+working with an incomplete type in the header.
+
+**Pure abstract interfaces** (`I{{CHANNEL_NAME}}`) -- code above the interface never
+holds a pointer to the concrete backend, only to `I{{CHANNEL_NAME}}`. This makes
+swapping in a real hardware backend, a mock for tests, or a replay backend a
+matter of adding one class, not touching call sites.
+
+**Factory as the single creation point** -- `{{CHANNEL_NAME}}Factory::Create({{CHANNEL_NAME}}Mode)` is the
+only place that instantiates a concrete `I{{CHANNEL_NAME}}`. Callers never `new` one directly.
+
+**Async via `std::function` callbacks** -- samples, state changes, and errors
+are pushed to the caller via registered callbacks. Worker threads use
+`std::atomic<bool>` for the stop flag and `join()` on stop/destruction.
+
+**`Simulator{{CHANNEL_NAME}}` simulates real failures** -- it is not a toy stub; extend it
+to fabricate the failure modes your real hardware has (link drops,
+reconnects, jitter, low battery, ...) so UI and app code can be built and
+tested before hardware backend exists.
+
+## Key Constraints
+
+- Public header in `include/` must remain pure C: no STL types, no C++
+  exceptions, no C++ references. Structs should be POD.
+- `framework/module.modulemap` is hand-maintained and injected via a CMake
+  post-build step -- keep it in sync when the public header changes.
+- Deployment targets: macOS {{DEPLOYMENT_TARGET_MACOS}}, iOS {{DEPLOYMENT_TARGET_IOS}} (defined in `build_xcframework.sh`).

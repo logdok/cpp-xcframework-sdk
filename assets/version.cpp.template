@@ -1,0 +1,19 @@
+//
+// version.cpp
+// ~~~~~~~~~~~
+//
+// Copyright (c) {{YEAR}} {{AUTHOR}}
+//
+// Distributed under the MIT License. (See accompanying file LICENSE.txt)
+//
+
+#include "{{SDK_NAME}}.h"
+
+extern "C" {{API_PREFIX}}_API {{API_PREFIX}}Version {{API_PREFIX}}_GetVersion(void) {
+    {{API_PREFIX}}Version v;
+    v.major = 0;
+    v.minor = 1;
+    v.patch = 0;
+    v.build = 0;
+    return v;
+}

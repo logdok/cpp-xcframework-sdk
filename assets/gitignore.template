@@ -1,0 +1,5 @@
+build-macos/
+build-ios-device/
+build-ios-simulator/
+{{SDK_NAME}}.xcframework/
+.DS_Store

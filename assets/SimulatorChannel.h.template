@@ -1,0 +1,55 @@
+//
+// transport/Simulator{{CHANNEL_NAME}}.h
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//
+// Copyright (c) {{YEAR}} {{AUTHOR}}
+//
+// Distributed under the MIT License. (See accompanying file LICENSE.txt)
+//
+
+#pragma once
+
+// Concrete I{{CHANNEL_NAME}} that fabricates samples plus state changes on a
+// background thread. This is not a toy stub: it is a full behavioral
+// simulator used for UI/app development and testing without hardware, so it
+// should simulate real-world failures relevant to your domain (link drops,
+// reconnects, jitter, battery drain, ...) the same way this skeleton
+// simulates a link drop + reconnect cycle.
+
+#include <atomic>
+#include <thread>
+
+#include "transport/I{{CHANNEL_NAME}}.h"
+
+namespace {{NAMESPACE}} {
+
+class Simulator{{CHANNEL_NAME}} final : public I{{CHANNEL_NAME}} {
+public:
+    Simulator{{CHANNEL_NAME}}();
+    ~Simulator{{CHANNEL_NAME}}() override;
+
+    bool open() override;
+    void close() override;
+    bool isOpen() const override;
+
+    void setSampleCallback(SampleCallback callback) override;
+    void setStateCallback(StateCallback callback) override;
+    void setErrorCallback(ErrorCallback callback) override;
+
+    void startStreaming() override;
+    void stopStreaming() override;
+
+private:
+    void run(); // worker-thread loop
+
+    SampleCallback sampleCb_;
+    StateCallback  stateCb_;
+    ErrorCallback  errorCb_;
+
+    std::atomic<bool> open_{false};
+    std::atomic<bool> streaming_{false};
+
+    std::thread worker_;
+};
+
+} // namespace {{NAMESPACE}}

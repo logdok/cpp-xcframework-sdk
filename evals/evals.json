@@ -1,0 +1,17 @@
+{
+  "skill_name": "cpp-xcframework-sdk",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "Хочу с нуля сделать C++ SDK для BLE-датчика пульса (heart rate strap), который будет использоваться из Swift-приложения на iOS и macOS. Компилировать нужно в .xcframework. В будущем, возможно, добавим Android-клиент, поэтому не хочу протекания C++ ABI в публичный интерфейс. Заскаффолди мне такой проект в директории ~/hr-sdk-test с разумной структурой: заголовки, реализация, сборочные скрипты, и т.д.",
+      "expected_output": "A generated repo with a pure C-ABI public header (extern \"C\", POD structs, no STL types), CMakeLists.txt building a .framework on Apple platforms, a build_xcframework.sh producing an .xcframework from macOS/iOS-device/iOS-simulator slices, a module.modulemap injected via CMake post-build step, and internal C++ using Pimpl + a pure abstract backend interface + factory + a simulator backend. The generated project should cmake-configure and build successfully.",
+      "files": []
+    },
+    {
+      "id": 1,
+      "prompt": "I'm prototyping a control library for a network-attached PTZ camera in C++. Our SwiftUI app needs to link it as an xcframework on macOS and iOS, and the UI team wants to start building screens before we get real camera hardware in the office. Also heard we might need a Windows build down the line for a partner's desktop app. Can you set up the project structure for this in /tmp/ptz-camera-sdk-test? I want good separation between the public API and the internals.",
+      "expected_output": "A generated repo with a pure C-ABI public header, CMakeLists.txt building a .framework on Apple platforms with a Windows-portable export macro (dllexport/dllimport), build_xcframework.sh for the three Apple slices, module.modulemap injection, and internal C++ using Pimpl + interface + factory + a simulator backend that fabricates realistic failures (not just happy-path frames) so the UI team can build against it before hardware arrives. The generated project should cmake-configure and build successfully.",
+      "files": []
+    }
+  ]
+}

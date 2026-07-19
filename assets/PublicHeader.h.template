@@ -1,0 +1,168 @@
+//
+// {{SDK_NAME}}.h
+// ~~~~~~~~~~~~~~
+//
+// Copyright (c) {{YEAR}} {{AUTHOR}}
+//
+// Distributed under the MIT License. (See accompanying file LICENSE.txt)
+//
+
+#ifndef {{SDK_NAME_UPPER}}_H
+#define {{SDK_NAME_UPPER}}_H
+
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* --------------------------------------------------------------------
+ * Export macro.
+ * {{SDK_NAME_UPPER}}_BUILD is defined only when compiling the library itself
+ * (see CMakeLists.txt). Any consumer including this header from the
+ * outside gets the "import" variant automatically.
+ * ------------------------------------------------------------------ */
+#if defined(_WIN32)
+  #ifdef {{SDK_NAME_UPPER}}_BUILD
+    #define {{API_PREFIX}}_API __declspec(dllexport)
+  #else
+    #define {{API_PREFIX}}_API __declspec(dllimport)
+  #endif
+#else
+  #define {{API_PREFIX}}_API __attribute__((visibility("default")))
+#endif
+
+/* --------------------------------------------------------------------
+ * {{API_PREFIX}}Version
+ * Plain POD struct, no STL, no pointers -> stable across compilers.
+ * ------------------------------------------------------------------ */
+typedef struct {{API_PREFIX}}Version
+{
+    uint32_t major;
+    uint32_t minor;
+    uint32_t patch;
+    uint32_t build;
+} {{API_PREFIX}}Version;
+
+/* Returns the current SDK version. Never throws, never allocates. */
+{{API_PREFIX}}_API {{API_PREFIX}}Version {{API_PREFIX}}_GetVersion(void);
+
+/* ====================================================================
+ * {{ENTITY_NAME}} discovery / session lifecycle
+ *
+ * The SDK is built around {{ENTITY_NAME}}Manager -> {{ENTITY_NAME}}Info ->
+ * {{ENTITY_NAME}}Session. A {{ENTITY_NAME}} does not exist as a live object
+ * on its own: it becomes a session only after Connect().
+ * ================================================================== */
+
+/* Max length (including the trailing NUL) of the text fields below. */
+#define {{API_PREFIX}}_STR_MAX 64
+
+/* POD snapshot of a discovered {{ENTITY_NAME_LOWER}}. Fixed-size char buffers
+ * keep the struct ABI-stable (no std::string across the boundary).
+ * `struct_size` is the leading field so the layout can grow later without
+ * breaking older consumers -- they compare against their own sizeof. */
+typedef struct {{API_PREFIX}}{{ENTITY_NAME}}Info
+{
+    uint32_t struct_size;
+
+    char     id[{{API_PREFIX}}_STR_MAX];
+    char     name[{{API_PREFIX}}_STR_MAX];
+    char     model[{{API_PREFIX}}_STR_MAX];
+
+    int32_t  battery;    /* 0..100, -1 if unknown */
+    uint8_t  reachable;  /* 0/1 */
+    uint8_t  busy;       /* 0/1 -- currently held by another session */
+} {{API_PREFIX}}{{ENTITY_NAME}}Info;
+
+/* Opaque manager handle -- callers never see the struct internals. */
+struct {{API_PREFIX}}{{ENTITY_NAME}}Manager;
+typedef struct {{API_PREFIX}}{{ENTITY_NAME}}Manager* {{API_PREFIX}}{{ENTITY_NAME}}ManagerRef;
+
+/* Discovery events. `info` pointers are valid only for the duration of the
+ * call -- copy out what you need. user_data is passed back unchanged. */
+typedef void (*{{API_PREFIX}}{{ENTITY_NAME}}AddedCallback)(const {{API_PREFIX}}{{ENTITY_NAME}}Info* info, void* user_data);
+typedef void (*{{API_PREFIX}}{{ENTITY_NAME}}RemovedCallback)(const char* id, void* user_data);
+
+/* Any callback may be NULL if the caller is not interested in that event. */
+typedef struct {{API_PREFIX}}{{ENTITY_NAME}}Callbacks
+{
+    {{API_PREFIX}}{{ENTITY_NAME}}AddedCallback   on_added;
+    {{API_PREFIX}}{{ENTITY_NAME}}RemovedCallback on_removed;
+    void*                                        user_data;
+} {{API_PREFIX}}{{ENTITY_NAME}}Callbacks;
+
+/* Creates a manager. Callbacks fire on a background thread. */
+{{API_PREFIX}}_API {{API_PREFIX}}{{ENTITY_NAME}}ManagerRef {{API_PREFIX}}_Manager_Create({{API_PREFIX}}{{ENTITY_NAME}}Callbacks callbacks);
+
+/* Starts / stops emitting discovery events. Safe to call with NULL. */
+{{API_PREFIX}}_API void {{API_PREFIX}}_Manager_Start({{API_PREFIX}}{{ENTITY_NAME}}ManagerRef manager);
+{{API_PREFIX}}_API void {{API_PREFIX}}_Manager_Stop({{API_PREFIX}}{{ENTITY_NAME}}ManagerRef manager);
+
+/* Stops discovery, joins the background thread, frees memory. NULL-safe. */
+{{API_PREFIX}}_API void {{API_PREFIX}}_Manager_Destroy({{API_PREFIX}}{{ENTITY_NAME}}ManagerRef manager);
+
+/* Opaque session handle. */
+struct {{API_PREFIX}}{{ENTITY_NAME}}Session;
+typedef struct {{API_PREFIX}}{{ENTITY_NAME}}Session* {{API_PREFIX}}{{ENTITY_NAME}}SessionRef;
+
+/* Opens a session to a previously discovered {{ENTITY_NAME_LOWER}}.
+ * Returns NULL on failure. */
+{{API_PREFIX}}_API {{API_PREFIX}}{{ENTITY_NAME}}SessionRef {{API_PREFIX}}_Manager_Connect({{API_PREFIX}}{{ENTITY_NAME}}ManagerRef manager,
+                                                                                            const char* id);
+
+/* --------------------------------------------------------------------
+ * Data streaming
+ * Payload shape is a placeholder -- replace with the real wire format
+ * for your domain (image frame, sensor sample, telemetry packet, ...).
+ * ------------------------------------------------------------------ */
+
+/* One decoded data unit. All pointers are valid ONLY for the duration of
+ * the callback -- copy out what you need before returning. */
+typedef struct {{API_PREFIX}}Sample
+{
+    const uint8_t* data;
+    int32_t        size;
+    uint64_t       timestamp; /* ms since epoch */
+} {{API_PREFIX}}Sample;
+
+typedef void (*{{API_PREFIX}}SampleCallback)(const {{API_PREFIX}}Sample* sample, void* user_data);
+
+/* Lifecycle of a live session. */
+typedef enum {{API_PREFIX}}SessionState
+{
+    {{API_PREFIX}}_STATE_DISCONNECTED  = 0,
+    {{API_PREFIX}}_STATE_CONNECTED     = 1,
+    {{API_PREFIX}}_STATE_STREAMING     = 2,
+    {{API_PREFIX}}_STATE_RECONNECTING  = 3
+} {{API_PREFIX}}SessionState;
+
+typedef void (*{{API_PREFIX}}StateCallback)({{API_PREFIX}}SessionState state, void* user_data);
+typedef void (*{{API_PREFIX}}ErrorCallback)(int32_t code, const char* message, void* user_data);
+
+/* Registers (or clears, if callback is NULL) the sample / state / error
+ * sinks. Set them right after Connect and before StartStreaming.
+ * Data and state callbacks arrive on a background thread. NULL-safe. */
+{{API_PREFIX}}_API void {{API_PREFIX}}_Session_SetSampleCallback({{API_PREFIX}}{{ENTITY_NAME}}SessionRef session,
+                                                                    {{API_PREFIX}}SampleCallback         callback,
+                                                                    void*                                 user_data);
+{{API_PREFIX}}_API void {{API_PREFIX}}_Session_SetStateCallback({{API_PREFIX}}{{ENTITY_NAME}}SessionRef session,
+                                                                   {{API_PREFIX}}StateCallback           callback,
+                                                                   void*                                  user_data);
+{{API_PREFIX}}_API void {{API_PREFIX}}_Session_SetErrorCallback({{API_PREFIX}}{{ENTITY_NAME}}SessionRef session,
+                                                                   {{API_PREFIX}}ErrorCallback           callback,
+                                                                   void*                                  user_data);
+
+/* Session controls. All NULL-safe. */
+{{API_PREFIX}}_API void {{API_PREFIX}}_Session_StartStreaming({{API_PREFIX}}{{ENTITY_NAME}}SessionRef session);
+{{API_PREFIX}}_API void {{API_PREFIX}}_Session_StopStreaming({{API_PREFIX}}{{ENTITY_NAME}}SessionRef session);
+{{API_PREFIX}}_API void {{API_PREFIX}}_Session_Disconnect({{API_PREFIX}}{{ENTITY_NAME}}SessionRef session);
+
+/* Destroys the session and frees memory. NULL-safe. */
+{{API_PREFIX}}_API void {{API_PREFIX}}_Session_Destroy({{API_PREFIX}}{{ENTITY_NAME}}SessionRef session);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* {{SDK_NAME_UPPER}}_H */

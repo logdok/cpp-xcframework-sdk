@@ -1,0 +1,83 @@
+//
+// tools/smoke_test.cpp
+// ~~~~~~~~~~~~~~~~~~~~
+//
+// Copyright (c) {{YEAR}} {{AUTHOR}}
+//
+// Distributed under the MIT License. (See accompanying file LICENSE.txt)
+//
+
+#include "{{SDK_NAME}}.h"
+
+#include <chrono>
+#include <cstdio>
+#include <thread>
+
+static void onAdded(const {{API_PREFIX}}{{ENTITY_NAME}}Info* info, void* user_data) {
+    int* count = static_cast<int*>(user_data);
+    if (count) ++(*count);
+    std::printf("  + %s  (%s, battery %d%%)\n", info->name, info->model, info->battery);
+}
+
+static void onRemoved(const char* id, void*) {
+    std::printf("  - %s\n", id);
+}
+
+struct SampleProbe {
+    int samples = 0;
+};
+
+static void onSample(const {{API_PREFIX}}Sample* s, void* user_data) {
+    auto* probe = static_cast<SampleProbe*>(user_data);
+    if (probe) ++probe->samples;
+    (void)s;
+}
+
+static void onState({{API_PREFIX}}SessionState state, void*) {
+    std::printf("  state -> %d\n", (int)state);
+}
+
+static void onError(int32_t code, const char* message, void*) {
+    std::printf("  error [%d]: %s\n", code, message);
+}
+
+int main() {
+    {{API_PREFIX}}Version v = {{API_PREFIX}}_GetVersion();
+    std::printf("{{SDK_NAME}} version: %u.%u.%u (build %u)\n", v.major, v.minor, v.patch, v.build);
+
+    std::printf("Discovery:\n");
+    int added = 0;
+
+    {{API_PREFIX}}{{ENTITY_NAME}}Callbacks cb{};
+    cb.on_added   = onAdded;
+    cb.on_removed = onRemoved;
+    cb.user_data  = &added;
+
+    {{API_PREFIX}}{{ENTITY_NAME}}ManagerRef manager = {{API_PREFIX}}_Manager_Create(cb);
+    {{API_PREFIX}}_Manager_Start(manager);
+
+    // Give the background thread time to emit the seeded {{ENTITY_NAME_LOWER}}s.
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    SampleProbe probe;
+    {{API_PREFIX}}{{ENTITY_NAME}}SessionRef session = {{API_PREFIX}}_Manager_Connect(manager, "AA001");
+    std::printf("Connect AA001 -> %s\n", session ? "session opened" : "failed");
+
+    {{API_PREFIX}}_Session_SetSampleCallback(session, onSample, &probe);
+    {{API_PREFIX}}_Session_SetStateCallback(session, onState, nullptr);
+    {{API_PREFIX}}_Session_SetErrorCallback(session, onError, nullptr);
+
+    {{API_PREFIX}}_Session_StartStreaming(session);
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    {{API_PREFIX}}_Session_StopStreaming(session);
+    {{API_PREFIX}}_Session_Destroy(session);
+
+    {{API_PREFIX}}_Manager_Stop(manager);
+    {{API_PREFIX}}_Manager_Destroy(manager);
+
+    std::printf("{{ENTITY_NAME}}s discovered: %d, samples: %d\n", added, probe.samples);
+
+    const bool ok = added == 2 && probe.samples > 0;
+    std::printf("SMOKE %s\n", ok ? "PASSED" : "FAILED");
+    return ok ? 0 : 1;
+}

@@ -1,0 +1,160 @@
+//
+// capi/{{ENTITY_NAME_LOWER}}_c_api.cpp
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//
+// Copyright (c) {{YEAR}} {{AUTHOR}}
+//
+// Distributed under the MIT License. (See accompanying file LICENSE.txt)
+//
+
+#include "{{SDK_NAME}}.h"
+
+#include <algorithm>
+#include <cstring>
+#include <string>
+
+#include "discovery/{{ENTITY_NAME}}Manager.h"
+#include "domain/types.h"
+#include "session/{{ENTITY_NAME}}Session.h"
+
+// C-ABI facade. The opaque {{API_PREFIX}}* handles are just
+// reinterpret_cast views onto the C++ objects; no C++ type ever crosses the
+// boundary. Every function here does the same two things: convert
+// POD <-> C++ domain type, and forward the call.
+
+namespace {
+
+void copyStr(char (&dst)[{{API_PREFIX}}_STR_MAX], const std::string& src) {
+    const std::size_t n =
+        std::min(src.size(), static_cast<std::size_t>({{API_PREFIX}}_STR_MAX - 1));
+    std::memcpy(dst, src.data(), n);
+    dst[n] = '\0';
+}
+
+{{API_PREFIX}}{{ENTITY_NAME}}Info toC(const {{NAMESPACE}}::{{ENTITY_NAME}}Info& in) {
+    {{API_PREFIX}}{{ENTITY_NAME}}Info out;
+    std::memset(&out, 0, sizeof(out));
+    out.struct_size = sizeof({{API_PREFIX}}{{ENTITY_NAME}}Info);
+
+    copyStr(out.id, in.id);
+    copyStr(out.name, in.name);
+    copyStr(out.model, in.model);
+
+    out.battery   = in.battery;
+    out.reachable = in.reachable ? 1 : 0;
+    out.busy      = in.busy ? 1 : 0;
+    return out;
+}
+
+{{NAMESPACE}}::{{ENTITY_NAME}}Manager* asManager({{API_PREFIX}}{{ENTITY_NAME}}ManagerRef ref) {
+    return reinterpret_cast<{{NAMESPACE}}::{{ENTITY_NAME}}Manager*>(ref);
+}
+
+{{NAMESPACE}}::{{ENTITY_NAME}}Session* asSession({{API_PREFIX}}{{ENTITY_NAME}}SessionRef ref) {
+    return reinterpret_cast<{{NAMESPACE}}::{{ENTITY_NAME}}Session*>(ref);
+}
+
+} // namespace
+
+extern "C" {
+
+{{API_PREFIX}}_API {{API_PREFIX}}{{ENTITY_NAME}}ManagerRef
+{{API_PREFIX}}_Manager_Create({{API_PREFIX}}{{ENTITY_NAME}}Callbacks callbacks) {
+    {{NAMESPACE}}::{{ENTITY_NAME}}Manager::Callbacks cb;
+
+    if (callbacks.on_added) {
+        cb.onAdded = [callbacks](const {{NAMESPACE}}::{{ENTITY_NAME}}Info& info) {
+            const {{API_PREFIX}}{{ENTITY_NAME}}Info c = toC(info);
+            callbacks.on_added(&c, callbacks.user_data);
+        };
+    }
+    if (callbacks.on_removed) {
+        cb.onRemoved = [callbacks](const std::string& id) {
+            callbacks.on_removed(id.c_str(), callbacks.user_data);
+        };
+    }
+
+    return reinterpret_cast<{{API_PREFIX}}{{ENTITY_NAME}}ManagerRef>(
+        new {{NAMESPACE}}::{{ENTITY_NAME}}Manager(std::move(cb)));
+}
+
+{{API_PREFIX}}_API void {{API_PREFIX}}_Manager_Start({{API_PREFIX}}{{ENTITY_NAME}}ManagerRef manager) {
+    if (manager) asManager(manager)->start();
+}
+
+{{API_PREFIX}}_API void {{API_PREFIX}}_Manager_Stop({{API_PREFIX}}{{ENTITY_NAME}}ManagerRef manager) {
+    if (manager) asManager(manager)->stop();
+}
+
+{{API_PREFIX}}_API void {{API_PREFIX}}_Manager_Destroy({{API_PREFIX}}{{ENTITY_NAME}}ManagerRef manager) {
+    delete asManager(manager); // nullptr-safe
+}
+
+{{API_PREFIX}}_API {{API_PREFIX}}{{ENTITY_NAME}}SessionRef
+{{API_PREFIX}}_Manager_Connect({{API_PREFIX}}{{ENTITY_NAME}}ManagerRef manager, const char* id) {
+    if (!manager || !id) return nullptr;
+    auto session = asManager(manager)->connect(id);
+    return reinterpret_cast<{{API_PREFIX}}{{ENTITY_NAME}}SessionRef>(session.release());
+}
+
+{{API_PREFIX}}_API void {{API_PREFIX}}_Session_SetSampleCallback({{API_PREFIX}}{{ENTITY_NAME}}SessionRef session,
+                                                                    {{API_PREFIX}}SampleCallback         callback,
+                                                                    void*                                 user_data) {
+    if (!session) return;
+    if (!callback) {
+        asSession(session)->setSampleCallback(nullptr);
+        return;
+    }
+    asSession(session)->setSampleCallback([callback, user_data](const {{NAMESPACE}}::Sample& s) {
+        {{API_PREFIX}}Sample c;
+        c.data      = s.data.data();
+        c.size      = static_cast<int32_t>(s.data.size());
+        c.timestamp = s.timestamp;
+        callback(&c, user_data);
+    });
+}
+
+{{API_PREFIX}}_API void {{API_PREFIX}}_Session_SetStateCallback({{API_PREFIX}}{{ENTITY_NAME}}SessionRef session,
+                                                                   {{API_PREFIX}}StateCallback           callback,
+                                                                   void*                                  user_data) {
+    if (!session) return;
+    if (!callback) {
+        asSession(session)->setStateCallback(nullptr);
+        return;
+    }
+    asSession(session)->setStateCallback([callback, user_data]({{NAMESPACE}}::SessionState s) {
+        callback(static_cast<{{API_PREFIX}}SessionState>(s), user_data);
+    });
+}
+
+{{API_PREFIX}}_API void {{API_PREFIX}}_Session_SetErrorCallback({{API_PREFIX}}{{ENTITY_NAME}}SessionRef session,
+                                                                   {{API_PREFIX}}ErrorCallback           callback,
+                                                                   void*                                  user_data) {
+    if (!session) return;
+    if (!callback) {
+        asSession(session)->setErrorCallback(nullptr);
+        return;
+    }
+    asSession(session)->setErrorCallback(
+        [callback, user_data]({{NAMESPACE}}::ErrorCode code, const std::string& message) {
+            callback(static_cast<int32_t>(code), message.c_str(), user_data);
+        });
+}
+
+{{API_PREFIX}}_API void {{API_PREFIX}}_Session_StartStreaming({{API_PREFIX}}{{ENTITY_NAME}}SessionRef session) {
+    if (session) asSession(session)->startStreaming();
+}
+
+{{API_PREFIX}}_API void {{API_PREFIX}}_Session_StopStreaming({{API_PREFIX}}{{ENTITY_NAME}}SessionRef session) {
+    if (session) asSession(session)->stopStreaming();
+}
+
+{{API_PREFIX}}_API void {{API_PREFIX}}_Session_Disconnect({{API_PREFIX}}{{ENTITY_NAME}}SessionRef session) {
+    if (session) asSession(session)->disconnect();
+}
+
+{{API_PREFIX}}_API void {{API_PREFIX}}_Session_Destroy({{API_PREFIX}}{{ENTITY_NAME}}SessionRef session) {
+    delete asSession(session); // nullptr-safe
+}
+
+} // extern "C"

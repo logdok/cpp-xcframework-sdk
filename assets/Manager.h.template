@@ -1,0 +1,53 @@
+//
+// discovery/{{ENTITY_NAME}}Manager.h
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//
+// Copyright (c) {{YEAR}} {{AUTHOR}}
+//
+// Distributed under the MIT License. (See accompanying file LICENSE.txt)
+//
+
+#pragma once
+
+// The root of the SDK: it discovers {{ENTITY_NAME_LOWER}}s and hands out
+// sessions. Built as an always-running service that pushes events rather
+// than a one-shot Scan(). Implementation hidden behind Pimpl.
+
+#include <functional>
+#include <memory>
+#include <string>
+
+#include "domain/types.h"
+
+namespace {{NAMESPACE}} {
+
+class {{ENTITY_NAME}}Session;
+
+class {{ENTITY_NAME}}Manager {
+public:
+    // Event sinks. Any may be empty. Invoked from a background thread.
+    struct Callbacks {
+        std::function<void(const {{ENTITY_NAME}}Info&)>     onAdded;
+        std::function<void(const std::string& id)>          onRemoved;
+    };
+
+    explicit {{ENTITY_NAME}}Manager(Callbacks callbacks);
+    ~{{ENTITY_NAME}}Manager();
+
+    {{ENTITY_NAME}}Manager(const {{ENTITY_NAME}}Manager&)            = delete;
+    {{ENTITY_NAME}}Manager& operator=(const {{ENTITY_NAME}}Manager&) = delete;
+
+    // Start / stop emitting discovery events.
+    void start();
+    void stop();
+
+    // Opens a session to a discovered {{ENTITY_NAME_LOWER}}. Returns nullptr
+    // if the id is unknown.
+    std::unique_ptr<{{ENTITY_NAME}}Session> connect(const std::string& id);
+
+private:
+    class Impl;
+    std::unique_ptr<Impl> impl_;
+};
+
+} // namespace {{NAMESPACE}}
