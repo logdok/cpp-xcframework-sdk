@@ -29,6 +29,17 @@ target_include_directories({{SDK_NAME}} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
+# Hide every symbol by default; only the {{API_PREFIX}}_API-tagged C-ABI
+# functions in include/{{SDK_NAME}}.h are exported (visibility("default")
+# there overrides this per-symbol). Without this, every internal C++ class's
+# vtable/typeinfo/mangled symbol is exported too -- harmless until a
+# consumer links a second copy of a dependency you both use (e.g. protobuf)
+# and the two sets of internal symbols collide at link time.
+set_target_properties({{SDK_NAME}} PROPERTIES
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN ON
+)
+
 if(APPLE)
     # Build as a real .framework bundle (not a bare .dylib) so it can be
     # wrapped 1:1 into an .xcframework with `xcodebuild -create-xcframework`.

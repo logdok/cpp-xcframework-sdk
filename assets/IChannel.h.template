@@ -34,9 +34,14 @@ public:
 
     // Registers (or clears, with an empty function) the event sinks.
     // Samples and state changes are delivered on a background thread while
-    // streaming is active. Set these before startStreaming() and do not
-    // change them while streaming, so the worker sees a stable, race-free
-    // view.
+    // streaming is active. Safe to call at any time, including while
+    // streaming: implementations must serialize registration against
+    // delivery (an unsubscription barrier) so that once
+    // setXCallback(nullptr) returns, the old callback is guaranteed not to
+    // be running and will not run again -- only then is it safe for the
+    // caller to free whatever user_data the callback closed over. Never
+    // call a setXCallback from inside a callback body: the barrier makes
+    // that a self-deadlock.
     virtual void setSampleCallback(SampleCallback callback) = 0;
     virtual void setStateCallback(StateCallback callback) = 0;
     virtual void setErrorCallback(ErrorCallback callback) = 0;

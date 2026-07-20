@@ -66,6 +66,20 @@ only place that instantiates a concrete `I{{CHANNEL_NAME}}`. Callers never `new`
 **Async via `std::function` callbacks** -- samples, state changes, and errors
 are pushed to the caller via registered callbacks. Worker threads use
 `std::atomic<bool>` for the stop flag and `join()` on stop/destruction.
+`Simulator{{CHANNEL_NAME}}` serializes callback registration against
+invocation with `callbackMu_`, held for the whole invocation -- this makes
+`setXCallback(nullptr)` an unsubscription barrier: it won't return while a
+callback is mid-flight, so once it does, freeing the `user_data` the
+callback closed over is safe. Never call a `setXCallback` from inside a
+callback body -- self-deadlock.
+
+**Exception barrier at the C-ABI facade** -- every `extern "C"` function in
+`capi/{{ENTITY_NAME_LOWER}}_c_api.cpp` runs its body through `guardedVoid()`
+or `guardedRef<Ref>()`. A C++ exception escaping an `extern "C"` function is
+undefined behavior for a Swift/plain-C caller with no matching unwinder;
+`new`, `std::string`/`std::function` construction, and
+`std::thread::join()` (in a Pimpl destructor) are all real throw sources,
+not hypothetical ones.
 
 **`Simulator{{CHANNEL_NAME}}` simulates real failures** -- it is not a toy stub; extend it
 to fabricate the failure modes your real hardware has (link drops,

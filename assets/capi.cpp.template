@@ -54,107 +54,144 @@ void copyStr(char (&dst)[{{API_PREFIX}}_STR_MAX], const std::string& src) {
     return reinterpret_cast<{{NAMESPACE}}::{{ENTITY_NAME}}Session*>(ref);
 }
 
+// Exception barrier. A C++ exception that escapes an extern "C" function is
+// undefined behavior for any caller without a C++ unwinder that matches this
+// binary's (Swift, plain C, a different compiler/runtime) -- typically
+// std::terminate or a crash. Every entry point below funnels its
+// potentially-throwing work through one of these so nothing ever crosses the
+// boundary. Plausible throw sources here are heap allocation (new,
+// std::string/std::vector/std::function construction inside the C++ core)
+// and std::thread::join() inside a destructor -- not exotic edge cases.
+template <typename F>
+void guardedVoid(F&& fn) noexcept {
+    try {
+        fn();
+    } catch (...) {
+        // Nothing to report through a void-returning entry point; the
+        // operation simply did not complete.
+    }
+}
+
+template <typename Ref, typename F>
+Ref guardedRef(F&& fn) noexcept {
+    try {
+        return fn();
+    } catch (...) {
+        return nullptr;
+    }
+}
+
 } // namespace
 
 extern "C" {
 
 {{API_PREFIX}}_API {{API_PREFIX}}{{ENTITY_NAME}}ManagerRef
 {{API_PREFIX}}_Manager_Create({{API_PREFIX}}{{ENTITY_NAME}}Callbacks callbacks) {
-    {{NAMESPACE}}::{{ENTITY_NAME}}Manager::Callbacks cb;
+    return guardedRef<{{API_PREFIX}}{{ENTITY_NAME}}ManagerRef>([&] {
+        {{NAMESPACE}}::{{ENTITY_NAME}}Manager::Callbacks cb;
 
-    if (callbacks.on_added) {
-        cb.onAdded = [callbacks](const {{NAMESPACE}}::{{ENTITY_NAME}}Info& info) {
-            const {{API_PREFIX}}{{ENTITY_NAME}}Info c = toC(info);
-            callbacks.on_added(&c, callbacks.user_data);
-        };
-    }
-    if (callbacks.on_removed) {
-        cb.onRemoved = [callbacks](const std::string& id) {
-            callbacks.on_removed(id.c_str(), callbacks.user_data);
-        };
-    }
+        if (callbacks.on_added) {
+            cb.onAdded = [callbacks](const {{NAMESPACE}}::{{ENTITY_NAME}}Info& info) {
+                const {{API_PREFIX}}{{ENTITY_NAME}}Info c = toC(info);
+                callbacks.on_added(&c, callbacks.user_data);
+            };
+        }
+        if (callbacks.on_removed) {
+            cb.onRemoved = [callbacks](const std::string& id) {
+                callbacks.on_removed(id.c_str(), callbacks.user_data);
+            };
+        }
 
-    return reinterpret_cast<{{API_PREFIX}}{{ENTITY_NAME}}ManagerRef>(
-        new {{NAMESPACE}}::{{ENTITY_NAME}}Manager(std::move(cb)));
+        return reinterpret_cast<{{API_PREFIX}}{{ENTITY_NAME}}ManagerRef>(
+            new {{NAMESPACE}}::{{ENTITY_NAME}}Manager(std::move(cb)));
+    });
 }
 
 {{API_PREFIX}}_API void {{API_PREFIX}}_Manager_Start({{API_PREFIX}}{{ENTITY_NAME}}ManagerRef manager) {
-    if (manager) asManager(manager)->start();
+    guardedVoid([&] { if (manager) asManager(manager)->start(); });
 }
 
 {{API_PREFIX}}_API void {{API_PREFIX}}_Manager_Stop({{API_PREFIX}}{{ENTITY_NAME}}ManagerRef manager) {
-    if (manager) asManager(manager)->stop();
+    guardedVoid([&] { if (manager) asManager(manager)->stop(); });
 }
 
 {{API_PREFIX}}_API void {{API_PREFIX}}_Manager_Destroy({{API_PREFIX}}{{ENTITY_NAME}}ManagerRef manager) {
-    delete asManager(manager); // nullptr-safe
+    guardedVoid([&] { delete asManager(manager); }); // nullptr-safe
 }
 
 {{API_PREFIX}}_API {{API_PREFIX}}{{ENTITY_NAME}}SessionRef
 {{API_PREFIX}}_Manager_Connect({{API_PREFIX}}{{ENTITY_NAME}}ManagerRef manager, const char* id) {
-    if (!manager || !id) return nullptr;
-    auto session = asManager(manager)->connect(id);
-    return reinterpret_cast<{{API_PREFIX}}{{ENTITY_NAME}}SessionRef>(session.release());
+    return guardedRef<{{API_PREFIX}}{{ENTITY_NAME}}SessionRef>([&]() -> {{API_PREFIX}}{{ENTITY_NAME}}SessionRef {
+        if (!manager || !id) return nullptr;
+        auto session = asManager(manager)->connect(id);
+        return reinterpret_cast<{{API_PREFIX}}{{ENTITY_NAME}}SessionRef>(session.release());
+    });
 }
 
 {{API_PREFIX}}_API void {{API_PREFIX}}_Session_SetSampleCallback({{API_PREFIX}}{{ENTITY_NAME}}SessionRef session,
                                                                     {{API_PREFIX}}SampleCallback         callback,
                                                                     void*                                 user_data) {
-    if (!session) return;
-    if (!callback) {
-        asSession(session)->setSampleCallback(nullptr);
-        return;
-    }
-    asSession(session)->setSampleCallback([callback, user_data](const {{NAMESPACE}}::Sample& s) {
-        {{API_PREFIX}}Sample c;
-        c.data      = s.data.data();
-        c.size      = static_cast<int32_t>(s.data.size());
-        c.timestamp = s.timestamp;
-        callback(&c, user_data);
+    guardedVoid([&] {
+        if (!session) return;
+        if (!callback) {
+            asSession(session)->setSampleCallback(nullptr);
+            return;
+        }
+        asSession(session)->setSampleCallback([callback, user_data](const {{NAMESPACE}}::Sample& s) {
+            {{API_PREFIX}}Sample c;
+            c.data      = s.data.data();
+            c.size      = static_cast<int32_t>(s.data.size());
+            c.timestamp = s.timestamp;
+            callback(&c, user_data);
+        });
     });
 }
 
 {{API_PREFIX}}_API void {{API_PREFIX}}_Session_SetStateCallback({{API_PREFIX}}{{ENTITY_NAME}}SessionRef session,
                                                                    {{API_PREFIX}}StateCallback           callback,
                                                                    void*                                  user_data) {
-    if (!session) return;
-    if (!callback) {
-        asSession(session)->setStateCallback(nullptr);
-        return;
-    }
-    asSession(session)->setStateCallback([callback, user_data]({{NAMESPACE}}::SessionState s) {
-        callback(static_cast<{{API_PREFIX}}SessionState>(s), user_data);
+    guardedVoid([&] {
+        if (!session) return;
+        if (!callback) {
+            asSession(session)->setStateCallback(nullptr);
+            return;
+        }
+        asSession(session)->setStateCallback([callback, user_data]({{NAMESPACE}}::SessionState s) {
+            callback(static_cast<{{API_PREFIX}}SessionState>(s), user_data);
+        });
     });
 }
 
 {{API_PREFIX}}_API void {{API_PREFIX}}_Session_SetErrorCallback({{API_PREFIX}}{{ENTITY_NAME}}SessionRef session,
                                                                    {{API_PREFIX}}ErrorCallback           callback,
                                                                    void*                                  user_data) {
-    if (!session) return;
-    if (!callback) {
-        asSession(session)->setErrorCallback(nullptr);
-        return;
-    }
-    asSession(session)->setErrorCallback(
-        [callback, user_data]({{NAMESPACE}}::ErrorCode code, const std::string& message) {
-            callback(static_cast<int32_t>(code), message.c_str(), user_data);
-        });
+    guardedVoid([&] {
+        if (!session) return;
+        if (!callback) {
+            asSession(session)->setErrorCallback(nullptr);
+            return;
+        }
+        asSession(session)->setErrorCallback(
+            [callback, user_data]({{NAMESPACE}}::ErrorCode code, const std::string& message) {
+                callback(static_cast<int32_t>(code), message.c_str(), user_data);
+            });
+    });
 }
 
 {{API_PREFIX}}_API void {{API_PREFIX}}_Session_StartStreaming({{API_PREFIX}}{{ENTITY_NAME}}SessionRef session) {
-    if (session) asSession(session)->startStreaming();
+    guardedVoid([&] { if (session) asSession(session)->startStreaming(); });
 }
 
 {{API_PREFIX}}_API void {{API_PREFIX}}_Session_StopStreaming({{API_PREFIX}}{{ENTITY_NAME}}SessionRef session) {
-    if (session) asSession(session)->stopStreaming();
+    guardedVoid([&] { if (session) asSession(session)->stopStreaming(); });
 }
 
 {{API_PREFIX}}_API void {{API_PREFIX}}_Session_Disconnect({{API_PREFIX}}{{ENTITY_NAME}}SessionRef session) {
-    if (session) asSession(session)->disconnect();
+    guardedVoid([&] { if (session) asSession(session)->disconnect(); });
 }
 
 {{API_PREFIX}}_API void {{API_PREFIX}}_Session_Destroy({{API_PREFIX}}{{ENTITY_NAME}}SessionRef session) {
-    delete asSession(session); // nullptr-safe
+    guardedVoid([&] { delete asSession(session); }); // nullptr-safe
 }
 
 } // extern "C"

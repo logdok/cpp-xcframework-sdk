@@ -17,6 +17,7 @@
 // simulates a link drop + reconnect cycle.
 
 #include <atomic>
+#include <mutex>
 #include <thread>
 
 #include "transport/I{{CHANNEL_NAME}}.h"
@@ -42,6 +43,16 @@ public:
 private:
     void run(); // worker-thread loop
 
+    // Guards the three callback fields against a data race between the
+    // worker thread invoking them and the client re-registering or clearing
+    // them via setXCallback -- held for the full duration of every
+    // invocation, not just the assignment. This gives setXCallback(nullptr)
+    // an unsubscription barrier: it does not return until any in-flight
+    // callback call has finished, so once it returns the caller can safely
+    // free whatever user_data the callback closed over. Never call a
+    // setXCallback from inside a callback body -- it would deadlock against
+    // the lock the callback is currently running under.
+    std::mutex     callbackMu_;
     SampleCallback sampleCb_;
     StateCallback  stateCb_;
     ErrorCallback  errorCb_;

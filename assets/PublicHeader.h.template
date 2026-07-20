@@ -141,8 +141,13 @@ typedef void (*{{API_PREFIX}}StateCallback)({{API_PREFIX}}SessionState state, vo
 typedef void (*{{API_PREFIX}}ErrorCallback)(int32_t code, const char* message, void* user_data);
 
 /* Registers (or clears, if callback is NULL) the sample / state / error
- * sinks. Set them right after Connect and before StartStreaming.
- * Data and state callbacks arrive on a background thread. NULL-safe. */
+ * sinks. Data and state callbacks arrive on a background thread. NULL-safe.
+ * Safe to call at any time, including while streaming: this is an
+ * unsubscription barrier -- once a Set*Callback(session, NULL, ...) call
+ * returns, the previous callback is guaranteed to not be running and will
+ * not be invoked again, so it is then safe to free whatever user_data it
+ * closed over. Do not call a Set*Callback function from inside that same
+ * callback's body -- the barrier makes that a self-deadlock. */
 {{API_PREFIX}}_API void {{API_PREFIX}}_Session_SetSampleCallback({{API_PREFIX}}{{ENTITY_NAME}}SessionRef session,
                                                                     {{API_PREFIX}}SampleCallback         callback,
                                                                     void*                                 user_data);

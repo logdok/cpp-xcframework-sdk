@@ -26,18 +26,56 @@ namespace {
     return reinterpret_cast<{{NAMESPACE}}::{{ENTITY_NAME}}*>(ref);
 }
 
+// Exception barrier. A C++ exception that escapes an extern "C" function is
+// undefined behavior for any caller without a C++ unwinder that matches this
+// binary's (Swift, plain C, a different compiler/runtime) -- typically
+// std::terminate or a crash. Every entry point below funnels its
+// potentially-throwing work through one of these so nothing ever crosses the
+// boundary. Plausible throw sources here are heap allocation (new,
+// std::vector construction) and whatever the backend's process() does
+// internally.
+template <typename F>
+void guardedVoid(F&& fn) noexcept {
+    try {
+        fn();
+    } catch (...) {
+        // Nothing to report through a void-returning entry point; the
+        // operation simply did not complete.
+    }
+}
+
+template <typename Ref, typename F>
+Ref guardedRef(F&& fn) noexcept {
+    try {
+        return fn();
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+template <typename F>
+{{API_PREFIX}}Result guardedResult(F&& fn) noexcept {
+    try {
+        return fn();
+    } catch (...) {
+        return {{API_PREFIX}}_BACKEND_FAILURE;
+    }
+}
+
 } // namespace
 
 extern "C" {
 
 {{API_PREFIX}}_API {{API_PREFIX}}{{ENTITY_NAME}}Ref {{API_PREFIX}}_{{ENTITY_NAME}}_Create({{API_PREFIX}}{{ENTITY_NAME}}Options options) {
-    {{NAMESPACE}}::{{ENTITY_NAME}}Options opts;
-    opts.level = options.level;
-    return reinterpret_cast<{{API_PREFIX}}{{ENTITY_NAME}}Ref>(new {{NAMESPACE}}::{{ENTITY_NAME}}(opts));
+    return guardedRef<{{API_PREFIX}}{{ENTITY_NAME}}Ref>([&] {
+        {{NAMESPACE}}::{{ENTITY_NAME}}Options opts;
+        opts.level = options.level;
+        return reinterpret_cast<{{API_PREFIX}}{{ENTITY_NAME}}Ref>(new {{NAMESPACE}}::{{ENTITY_NAME}}(opts));
+    });
 }
 
 {{API_PREFIX}}_API void {{API_PREFIX}}_{{ENTITY_NAME}}_Destroy({{API_PREFIX}}{{ENTITY_NAME}}Ref {{ENTITY_NAME_LOWER}}) {
-    delete as{{ENTITY_NAME}}({{ENTITY_NAME_LOWER}}); // nullptr-safe
+    guardedVoid([&] { delete as{{ENTITY_NAME}}({{ENTITY_NAME_LOWER}}); }); // nullptr-safe
 }
 
 {{API_PREFIX}}_API {{API_PREFIX}}Result {{API_PREFIX}}_{{ENTITY_NAME}}_Process({{API_PREFIX}}{{ENTITY_NAME}}Ref      {{ENTITY_NAME_LOWER}},
@@ -51,37 +89,41 @@ extern "C" {
         return {{API_PREFIX}}_INVALID_INPUT;
     }
 
-    const std::vector<uint8_t> in(input, input + input_size);
-    std::vector<uint8_t> out;
+    return guardedResult([&]() -> {{API_PREFIX}}Result {
+        const std::vector<uint8_t> in(input, input + input_size);
+        std::vector<uint8_t> out;
 
-    {{NAMESPACE}}::ProgressCallback onProgress;
-    if (progress) {
-        onProgress = [progress, user_data](float p) { progress(p, user_data); };
-    }
+        {{NAMESPACE}}::ProgressCallback onProgress;
+        if (progress) {
+            onProgress = [progress, user_data](float p) { progress(p, user_data); };
+        }
 
-    const {{NAMESPACE}}::ResultCode rc = as{{ENTITY_NAME}}({{ENTITY_NAME_LOWER}})->process(in, onProgress, out);
-    if (rc != {{NAMESPACE}}::ResultCode::Ok) {
-        return static_cast<{{API_PREFIX}}Result>(rc);
-    }
+        const {{NAMESPACE}}::ResultCode rc = as{{ENTITY_NAME}}({{ENTITY_NAME_LOWER}})->process(in, onProgress, out);
+        if (rc != {{NAMESPACE}}::ResultCode::Ok) {
+            return static_cast<{{API_PREFIX}}Result>(rc);
+        }
 
-    // Ownership transfer: this buffer belongs to the caller now, freed via
-    // {{API_PREFIX}}_{{ENTITY_NAME}}_FreeResult(). Plain new[] pairs with the plain
-    // delete[] in FreeResult below -- both live in this SDK's binary, so the
-    // allocator match is guaranteed even across a DLL/framework boundary.
-    auto* data = new (std::nothrow) uint8_t[out.size()];
-    if (!data) return {{API_PREFIX}}_BACKEND_FAILURE;
-    std::memcpy(data, out.data(), out.size());
+        // Ownership transfer: this buffer belongs to the caller now, freed via
+        // {{API_PREFIX}}_{{ENTITY_NAME}}_FreeResult(). Plain new[] pairs with the plain
+        // delete[] in FreeResult below -- both live in this SDK's binary, so the
+        // allocator match is guaranteed even across a DLL/framework boundary.
+        auto* data = new (std::nothrow) uint8_t[out.size()];
+        if (!data) return {{API_PREFIX}}_BACKEND_FAILURE;
+        std::memcpy(data, out.data(), out.size());
 
-    out_result->data = data;
-    out_result->size = static_cast<int32_t>(out.size());
-    return {{API_PREFIX}}_OK;
+        out_result->data = data;
+        out_result->size = static_cast<int32_t>(out.size());
+        return {{API_PREFIX}}_OK;
+    });
 }
 
 {{API_PREFIX}}_API void {{API_PREFIX}}_{{ENTITY_NAME}}_FreeResult({{API_PREFIX}}Buffer* result) {
-    if (!result) return;
-    delete[] result->data;
-    result->data = nullptr;
-    result->size = 0;
+    guardedVoid([&] {
+        if (!result) return;
+        delete[] result->data;
+        result->data = nullptr;
+        result->size = 0;
+    });
 }
 
 } // extern "C"

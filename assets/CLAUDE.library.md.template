@@ -82,7 +82,17 @@ synchronously during that call, not from a worker thread. If a real
 implementation needs a worker thread (e.g. to keep a GPU queue busy), keep
 that entirely inside the backend and still block the calling thread in
 `process()` until the result is ready -- don't turn this API async without
-a real reason a caller would need it.
+a real reason a caller would need it. Because delivery is synchronous and
+single-threaded, there's no callback (un)subscription race to guard against
+here the way a `device` SDK's background-thread callbacks need a mutex barrier.
+
+**Exception barrier at the C-ABI facade** -- every `extern "C"` function in
+`capi/{{ENTITY_NAME_LOWER}}_c_api.cpp` runs its body through `guardedVoid()`,
+`guardedRef<Ref>()`, or `guardedResult()`. A C++ exception escaping an
+`extern "C"` function is undefined behavior for a Swift/plain-C caller with
+no matching unwinder; `new`, `std::vector` construction, and whatever the
+backend's `process()` does internally are all real throw sources, not
+hypothetical ones.
 
 ## Key Constraints
 

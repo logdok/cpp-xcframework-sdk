@@ -174,6 +174,61 @@ This lambda has no captures that need destructors run in a specific order
 and no `this` capture — it's copyable, POD-safe to store inside a
 `std::function`, and correctly outlives the `capi.cpp` call that created it.
 
+## Exception barrier at the C-ABI facade
+
+A C++ exception that unwinds out of an `extern "C"` function is undefined
+behavior for any caller that doesn't share this binary's C++ runtime —
+Swift has no C++ unwinder at all, and even a C++ caller built with a
+different compiler/STL version isn't guaranteed to unwind correctly across
+the boundary. In practice this means `std::terminate` or a crash, not a
+clean error. The throw sources are not exotic: `new`, `std::string`,
+`std::vector`, and `std::function` construction can all throw
+`std::bad_alloc`, and `std::thread::join()` (called from a Pimpl `Impl`
+destructor on session/manager teardown) can throw `std::system_error`.
+
+The fix in `capi/*_c_api.cpp` is a pair of small templates in the anonymous
+namespace — `guardedRef<Ref>(fn)` for pointer-returning entry points
+(catches and returns `nullptr`), `guardedVoid(fn)` for void ones (catches
+and swallows — there's no channel to report through), plus
+`guardedResult(fn)` in the `library` kind's facade (catches and returns the
+domain's backend-failure code). Every `extern "C"` function's body runs
+inside one of these — not just the ones an author suspects might throw.
+Cheap-looking NULL-check-and-forward functions look safe today but stop
+being safe the moment someone adds a `std::string` field to a callback
+capture or a lock that can throw on contention; wrapping unconditionally
+means that future change is exception-safe by construction instead of by
+someone remembering to re-audit every entry point.
+
+## Callback (un)subscription barrier
+
+(`device` kind — the `library` kind's callback fires synchronously on the
+calling thread during `process()`, so there's no concurrent invocation to
+race against and no barrier is needed.)
+
+`Simulator{Channel}`'s three callback fields (`sampleCb_`, `stateCb_`,
+`errorCb_`) are read by the worker thread on every tick and written by
+`setXCallback()` on whatever thread the caller calls it from. Without
+synchronization this is a plain data race on the `std::function` object —
+not just "the caller might see a stale value," but undefined behavior the
+moment a read and a write overlap, and (worse in practice) a callback
+invocation racing a `set*Callback(nullptr)` right before the caller frees
+the `user_data` the callback closured over is a real use-after-free, not a
+theoretical one.
+
+The fix is `callbackMu_`, held for the *entire duration* of both the
+assignment in `setXCallback()` and the invocation in `run()` — not just
+around the assignment. Holding it around the invocation, not just the
+write, is what turns `setXCallback(nullptr)` into an unsubscription
+*barrier*: the call cannot return while a callback is mid-flight, and once
+it does return, that callback is guaranteed to never fire again. That
+guarantee is what makes it safe for the caller to free `user_data`
+immediately after `{API}_Session_SetSampleCallback(session, NULL, NULL)`
+returns, rather than needing some other synchronization with the SDK's
+worker thread. The one rule this creates: never call a `setXCallback` from
+inside a callback body — the callback is running under `callbackMu_`, so
+that call would block forever on a lock its own calling thread already
+holds.
+
 ## Ownership across the boundary: borrowed vs owned pointers
 
 The `device` and `library` C APIs hand out pointers under two different,
